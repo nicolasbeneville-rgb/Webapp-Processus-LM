@@ -9,14 +9,14 @@ utilisées à travers l'application.
 # ═══════════════════════════════════════════════════════════
 # 1. MÉTADONNÉES DE L'APPLICATION
 # ═══════════════════════════════════════════════════════════
-APP_TITLE = "🤖 Pipeline ML — Guide interactif"
-APP_ICON = "🤖"
+APP_TITLE = "� ML Studio — Pipeline interactif"
+APP_ICON = "🧪"
 APP_LAYOUT = "wide"
 
 # ═══════════════════════════════════════════════════════════
 # 2. TYPES DE PROBLÈME SUPPORTÉS
 # ═══════════════════════════════════════════════════════════
-PROBLEM_TYPES = ["Régression", "Classification", "Clustering"]
+PROBLEM_TYPES = ["Régression", "Classification", "Série temporelle"]
 
 # ═══════════════════════════════════════════════════════════
 # 3. SEUILS DE VALIDATION PAR DÉFAUT
@@ -110,6 +110,8 @@ AGGREGATION_FUNCTIONS = ["sum", "mean", "median", "count", "min", "max"]
 # ═══════════════════════════════════════════════════════════
 REGRESSION_MODELS = [
     "Régression Linéaire",
+    "Régression Polynomiale (degré 2)",
+    "Régression Polynomiale (degré 3)",
     "Ridge",
     "Lasso",
     "ElasticNet",
@@ -142,22 +144,20 @@ DATA_RAW_DIR = "data/raw"
 DATA_PROCESSED_DIR = "data/processed"
 DATA_OUTPUT_DIR = "data/output"
 MODELS_DIR = "models"
+SAVE_DIR = "data/saves"
 
 # ═══════════════════════════════════════════════════════════
 # 10. NAVIGATION — LISTE DES ÉTAPES
 # ═══════════════════════════════════════════════════════════
 STEPS = [
-    "0 — Configuration",
-    "1 — Chargement",
-    "2 — Typage",
-    "3 — Consolidation",
-    "4 — Audit EDA",
-    "5 — Préparation",
-    "6 — Graphiques",
+    "0 — Démarrage",
+    "1 — Typage",
+    "2 — Consolidation",
+    "3 — Diagnostic",
+    "4 — Cible & Variables",
+    "5 — Nettoyage",
+    "6 — Transformation",
     "7 — Modélisation",
-    "8 — Optimisation",
-    "9 — Variables",
-    "10 — Résidus",
-    "11 — Validation",
-    "12 — Prédiction",
+    "8 — Évaluation",
+    "9 — Optimisation & Prédiction",
 ]

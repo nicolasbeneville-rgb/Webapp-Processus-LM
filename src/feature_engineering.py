@@ -180,6 +180,125 @@ def auto_select_features(df: pd.DataFrame, target_col: str,
     return top.index.tolist()
 
 
+# ═══════════════════════════════════════════════════════════════════
+# DÉTECTION ET FEATURE ENGINEERING TEMPOREL
+# ═══════════════════════════════════════════════════════════════════
+def detect_datetime_columns(df: pd.DataFrame) -> list:
+    """Détecte les colonnes qui contiennent des dates/heures."""
+    dt_cols = df.select_dtypes(include=["datetime", "datetime64"]).columns.tolist()
+    for col in df.select_dtypes(include=["object"]).columns:
+        sample = df[col].dropna().head(100)
+        if len(sample) == 0:
+            continue
+        try:
+            parsed = pd.to_datetime(sample, infer_datetime_format=True, errors="coerce")
+            if parsed.notna().mean() > 0.8:
+                dt_cols.append(col)
+        except Exception:
+            continue
+    return dt_cols
+
+
+def extract_datetime_features(df: pd.DataFrame, col: str,
+                               features: list = None) -> pd.DataFrame:
+    """Extrait des composantes temporelles d'une colonne datetime.
+
+    Args:
+        df: DataFrame source.
+        col: Colonne datetime.
+        features: Liste de composantes à extraire parmi :
+            "year", "month", "day", "weekday", "hour", "quarter",
+            "is_weekend", "day_of_year", "week_of_year"
+
+    Returns:
+        DataFrame avec les nouvelles colonnes ajoutées.
+    """
+    result = df.copy()
+    dt = pd.to_datetime(result[col], errors="coerce")
+
+    all_features = features or ["year", "month", "day", "weekday", "quarter", "is_weekend"]
+    prefix = col
+
+    extractors = {
+        "year": lambda s: s.dt.year,
+        "month": lambda s: s.dt.month,
+        "day": lambda s: s.dt.day,
+        "weekday": lambda s: s.dt.weekday,
+        "hour": lambda s: s.dt.hour,
+        "quarter": lambda s: s.dt.quarter,
+        "is_weekend": lambda s: (s.dt.weekday >= 5).astype(int),
+        "day_of_year": lambda s: s.dt.dayofyear,
+        "week_of_year": lambda s: s.dt.isocalendar().week.astype(int),
+    }
+
+    created = []
+    for feat in all_features:
+        if feat in extractors:
+            new_col = f"{prefix}_{feat}"
+            result[new_col] = extractors[feat](dt)
+            created.append(new_col)
+
+    return result, created
+
+
+def create_lag_features(df: pd.DataFrame, col: str,
+                        lags: list = None,
+                        datetime_col: str = None) -> pd.DataFrame:
+    """Crée des variables de décalage (lag) pour une colonne numérique.
+
+    Args:
+        df: DataFrame source (doit être trié chronologiquement).
+        col: Colonne numérique pour laquelle créer les lags.
+        lags: Liste des décalages (ex: [1, 2, 3] pour t-1, t-2, t-3).
+        datetime_col: Colonne datetime pour trier (optionnel).
+
+    Returns:
+        Tuple (DataFrame avec lags, liste des colonnes créées).
+    """
+    result = df.copy()
+    if datetime_col and datetime_col in result.columns:
+        result = result.sort_values(datetime_col).reset_index(drop=True)
+
+    lags = lags or [1, 2, 3]
+    created = []
+    for lag in lags:
+        new_col = f"{col}_lag{lag}"
+        result[new_col] = result[col].shift(lag)
+        created.append(new_col)
+
+    return result, created
+
+
+def create_rolling_features(df: pd.DataFrame, col: str,
+                             windows: list = None,
+                             datetime_col: str = None) -> pd.DataFrame:
+    """Crée des moyennes glissantes pour une colonne numérique.
+
+    Args:
+        df: DataFrame source (doit être trié chronologiquement).
+        col: Colonne numérique.
+        windows: Tailles des fenêtres (ex: [3, 7, 14]).
+        datetime_col: Colonne datetime pour trier (optionnel).
+
+    Returns:
+        Tuple (DataFrame avec rolling features, liste des colonnes créées).
+    """
+    result = df.copy()
+    if datetime_col and datetime_col in result.columns:
+        result = result.sort_values(datetime_col).reset_index(drop=True)
+
+    windows = windows or [3, 7]
+    created = []
+    for w in windows:
+        new_mean = f"{col}_rmean{w}"
+        new_std = f"{col}_rstd{w}"
+        result[new_mean] = result[col].shift(1).rolling(window=w, min_periods=1).mean()
+        result[new_std] = result[col].shift(1).rolling(window=w, min_periods=1).std()
+        created.extend([new_mean, new_std])
+
+    return result, created
+
+
 def get_modification_summary(df_before: pd.DataFrame,
                              df_after: pd.DataFrame) -> dict:
     """Résume les modifications entre deux versions du DataFrame.
@@ -202,3 +321,69 @@ def get_modification_summary(df_before: pd.DataFrame,
         "added_columns": sorted(added_cols),
         "removed_columns": sorted(removed_cols),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PRÉDICTION HORIZON (cible décalée + features lead/lag)
+# ═══════════════════════════════════════════════════════════════════
+def create_horizon_target(df: pd.DataFrame, target_col: str,
+                           horizon: int,
+                           datetime_col: str = None) -> pd.DataFrame:
+    """Crée la colonne cible décalée pour prédire à +horizon périodes.
+
+    Args:
+        df: DataFrame trié chronologiquement.
+        target_col: Colonne à prédire.
+        horizon: Nombre de périodes dans le futur.
+        datetime_col: Colonne datetime pour tri (optionnel).
+
+    Returns:
+        Tuple (DataFrame avec colonne cible horizon, nom de la colonne créée).
+    """
+    result = df.copy()
+    if datetime_col and datetime_col in result.columns:
+        result = result.sort_values(datetime_col).reset_index(drop=True)
+
+    new_col = f"{target_col}_t+{horizon}"
+    result[new_col] = result[target_col].shift(-horizon)
+    return result, new_col
+
+
+def create_lead_features(df: pd.DataFrame, col: str,
+                          horizon: int,
+                          agg: str = "sum",
+                          datetime_col: str = None) -> pd.DataFrame:
+    """Crée des features « futur » (lead) : agrégation sur les N prochaines périodes.
+
+    Utile pour injecter une prévision exogène (ex: pluvio prévue à 15 jours).
+
+    Args:
+        df: DataFrame trié chronologiquement.
+        col: Colonne source.
+        horizon: Nombre de périodes à regarder vers l'avant.
+        agg: Type d'agrégation — "sum", "mean", "max", "min".
+        datetime_col: Colonne datetime pour tri (optionnel).
+
+    Returns:
+        Tuple (DataFrame avec feature lead, nom de la colonne créée).
+    """
+    result = df.copy()
+    if datetime_col and datetime_col in result.columns:
+        result = result.sort_values(datetime_col).reset_index(drop=True)
+
+    new_col = f"{col}_lead{horizon}_{agg}"
+    # Rolling inversé : on inverse, on calcule le rolling, on ré-inverse
+    reversed_col = result[col].iloc[::-1]
+    if agg == "sum":
+        rolled = reversed_col.rolling(window=horizon, min_periods=1).sum()
+    elif agg == "mean":
+        rolled = reversed_col.rolling(window=horizon, min_periods=1).mean()
+    elif agg == "max":
+        rolled = reversed_col.rolling(window=horizon, min_periods=1).max()
+    elif agg == "min":
+        rolled = reversed_col.rolling(window=horizon, min_periods=1).min()
+    else:
+        rolled = reversed_col.rolling(window=horizon, min_periods=1).sum()
+
+    result[new_col] = rolled.iloc[::-1].values
+    return result, new_col

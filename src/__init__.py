@@ -22,6 +22,8 @@ from . import (
     models,
     evaluation,
     validators,
+    guide,
+    persistence,
 )
 
 __all__ = [
@@ -33,4 +35,6 @@ __all__ = [
     "models",
     "evaluation",
     "validators",
+    "guide",
+    "persistence",
 ]

@@ -38,6 +38,8 @@ from sklearn.svm import SVR, SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.pipeline import Pipeline
 
 from sklearn.metrics import (
     r2_score,
@@ -66,6 +68,14 @@ def get_model(name: str, problem_type: str, params: dict = None):
         Objet modèle scikit-learn.
     """
     params = params or {}
+
+    # Régression polynomiale : Pipeline spécial
+    if name.startswith("Régression Polynomiale"):
+        degree = 2 if "degré 2" in name else 3
+        return Pipeline([
+            ("poly", PolynomialFeatures(degree=degree, include_bias=False)),
+            ("reg", LinearRegression()),
+        ])
 
     models_registry = {
         # ── Régression ──
@@ -295,6 +305,30 @@ def split_data(df: pd.DataFrame, target_col: str, feature_cols: list,
 
     return train_test_split(X, y, test_size=test_size,
                             random_state=random_state)
+
+
+def split_data_chronological(df: pd.DataFrame, target_col: str,
+                              feature_cols: list,
+                              test_size: float = DEFAULT_TEST_SIZE,
+                              datetime_col: str = None) -> tuple:
+    """Sépare les données chronologiquement (pas de mélange).
+
+    Les premières lignes servent à l'entraînement, les dernières au test.
+    Le DataFrame doit être trié par date avant appel.
+
+    Returns:
+        Tuple (X_train, X_test, y_train, y_test).
+    """
+    if datetime_col and datetime_col in df.columns:
+        df = df.sort_values(datetime_col).reset_index(drop=True)
+
+    n = len(df)
+    split_idx = int(n * (1 - test_size))
+
+    X = df[feature_cols].values
+    y = df[target_col].values
+
+    return X[:split_idx], X[split_idx:], y[:split_idx], y[split_idx:]
 
 
 # ═══════════════════════════════════════════════════════════════════

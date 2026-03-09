@@ -32,3 +32,11 @@ models/*.pkl
 # OS
 Thumbs.db
 .DS_Store
+
+# Sauvegardes et projets utilisateur
+data/saves/
+projets/
+app_old.py
+
+# Claude
+.claude/

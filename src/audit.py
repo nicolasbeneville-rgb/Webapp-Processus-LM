@@ -285,23 +285,31 @@ def plot_correlation_heatmap(corr_matrix: pd.DataFrame):
     if corr_matrix.empty:
         return None
 
-    size = max(6, len(corr_matrix.columns) * 0.6)
+    n = len(corr_matrix.columns)
+    size = max(3.5, n * 0.4)
     fig, ax = plt.subplots(figsize=(size, size))
+    fig.set_facecolor("#F8F9FC")
     mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+    cmap = sns.diverging_palette(240, 10, s=80, l=55, as_cmap=True)
     sns.heatmap(
         corr_matrix,
         mask=mask,
-        annot=len(corr_matrix.columns) <= 15,
+        annot=n <= 15,
         fmt=".2f",
-        cmap="RdBu_r",
+        cmap=cmap,
         center=0,
         vmin=-1,
         vmax=1,
         square=True,
-        linewidths=0.5,
+        linewidths=2,
+        linecolor="#F8F9FC",
         ax=ax,
+        annot_kws={"fontsize": 8, "fontweight": "bold"},
+        cbar_kws={"shrink": 0.8, "aspect": 25},
     )
-    ax.set_title("Matrice de corrélation", fontsize=14)
+    ax.set_title("Matrice de correlation", fontsize=10, fontweight="bold",
+                 color="#111827", pad=10)
+    ax.tick_params(labelsize=7, colors="#6B7280")
     plt.tight_layout()
     return fig
 

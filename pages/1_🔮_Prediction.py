@@ -14,6 +14,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import pickle
 import io
 
 # ═══════════════════════════════════════════════════════════
@@ -70,12 +71,13 @@ with st.sidebar:
 indépendamment du pipeline ML Studio.
 
 **Comment ça marche :**
-1. Chargez un modèle `.pkl` ou `.joblib`
+1. Chargez un modèle `.mlmodel`, `.pkl` ou `.joblib`
 2. Chargez vos données (CSV / Excel)
 3. Lancez la prédiction
 
-> Le modèle doit avoir été entraîné sur des
-> colonnes **identiques** à celles de vos données.
+> Les fichiers `.mlmodel` exportés depuis ML Studio
+> contiennent le modèle + le pipeline de transformation.
+> Les fichiers `.pkl`/`.joblib` classiques fonctionnent aussi.
 """)
 
     st.markdown("---")
@@ -95,34 +97,54 @@ st.caption("Chargez un modèle exporté et vos données pour obtenir des prédic
 st.markdown("### 1. Charger le modèle")
 
 model_file = st.file_uploader(
-    "Modèle (.pkl ou .joblib)",
-    type=["pkl", "joblib"],
+    "Modèle (.mlmodel, .pkl ou .joblib)",
+    type=["mlmodel", "pkl", "joblib"],
     key="pred_model_upload",
-    help="Fichier modèle exporté depuis ML Studio ou scikit-learn",
+    help="Fichier modèle exporté depuis ML Studio (.mlmodel) ou scikit-learn (.pkl/.joblib)",
 )
 
 model = None
+model_meta = None  # Métadonnées du pipeline (si fichier .mlmodel)
+expected_features = None
 if model_file is not None:
     try:
-        model = joblib.load(model_file)
-        model_type = type(model).__name__
+        if model_file.name.endswith(".mlmodel"):
+            # Format ML Studio : modèle + métadonnées du pipeline
+            model_meta = pickle.load(model_file)
+            model = model_meta["model"]
+            model_type = type(model).__name__
+            model_name = model_meta.get("name", model_type)
 
-        c1, c2 = st.columns(2)
-        c1.metric("Modèle chargé", model_type)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Modèle", model_name)
+            c2.metric("Type de problème", model_meta.get("problem_type", "?"))
+            c3.metric("Score test", f"{model_meta.get('test_score', 0):.4f}")
 
-        # Détection des features attendues
-        expected_features = None
-        if hasattr(model, "feature_names_in_"):
-            expected_features = list(model.feature_names_in_)
-            c2.metric("Features attendues", len(expected_features))
-            with st.expander("📋 Colonnes attendues par le modèle"):
-                st.write(expected_features)
-        elif hasattr(model, "n_features_in_"):
-            c2.metric("Nb features", model.n_features_in_)
+            expected_features = model_meta.get("feature_cols", [])
+            if expected_features:
+                with st.expander("📋 Colonnes attendues par le modèle"):
+                    st.write(expected_features)
+
+            st.success(f"✅ Modèle **{model_name}** chargé avec son pipeline de transformation.")
         else:
-            c2.metric("Features", "inconnues")
+            # Format classique pkl/joblib
+            model = joblib.load(model_file)
+            model_type = type(model).__name__
 
-        st.success(f"✅ Modèle **{model_type}** prêt.")
+            c1, c2 = st.columns(2)
+            c1.metric("Modèle chargé", model_type)
+
+            if hasattr(model, "feature_names_in_"):
+                expected_features = list(model.feature_names_in_)
+                c2.metric("Features attendues", len(expected_features))
+                with st.expander("📋 Colonnes attendues par le modèle"):
+                    st.write(expected_features)
+            elif hasattr(model, "n_features_in_"):
+                c2.metric("Nb features", model.n_features_in_)
+            else:
+                c2.metric("Features", "inconnues")
+
+            st.success(f"✅ Modèle **{model_type}** prêt.")
     except Exception as e:
         st.error(f"❌ Impossible de charger le modèle : {e}")
         model = None
@@ -199,7 +221,31 @@ else:
     else:
         if st.button("🔮 Lancer la prédiction", type="primary", key="pred_go"):
             try:
-                X_new = df_input[available]
+                X_new = df_input[available].copy()
+
+                # Appliquer le pipeline de transformation si fichier .mlmodel
+                if model_meta is not None:
+                    encoders = model_meta.get("encoders", {})
+                    scaler = model_meta.get("scaler")
+                    scaled_columns = model_meta.get("scaled_columns", [])
+
+                    # Appliquer les encodeurs
+                    for col, enc in encoders.items():
+                        if col in X_new.columns:
+                            try:
+                                X_new[col] = enc.transform(X_new[col])
+                            except ValueError:
+                                # Valeurs inconnues → -1
+                                X_new[col] = X_new[col].map(
+                                    lambda x, e=enc: e.transform([x])[0]
+                                    if x in e.classes_ else -1
+                                )
+
+                    # Appliquer le scaler
+                    if scaler is not None and scaled_columns:
+                        cols_to_scale = [c for c in scaled_columns if c in X_new.columns]
+                        if cols_to_scale:
+                            X_new[cols_to_scale] = scaler.transform(X_new[cols_to_scale])
 
                 # Prédictions
                 predictions = model.predict(X_new)

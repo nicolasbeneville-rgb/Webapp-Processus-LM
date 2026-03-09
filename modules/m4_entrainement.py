@@ -10,6 +10,8 @@ Split → Sélection modèles → Entraînement → Comparaison.
 import streamlit as st
 import pandas as pd
 import numpy as np
+import io
+import pickle
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -394,6 +396,44 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
 
         st.session_state["_pending_step"] = 8
         st.rerun()
+
+    # ═══════════════════════════════════════
+    # 6. Télécharger le modèle
+    # ═══════════════════════════════════════
+    best = st.session_state.get("meilleur_modele")
+    if best and "model" in best and st.session_state.get("entrainement_done"):
+        st.divider()
+        st.subheader("6. Télécharger le modèle")
+        st.info("💡 Téléchargez votre modèle pour le réutiliser plus tard, "
+                "même depuis un autre ordinateur.")
+
+        # Sérialiser le modèle + métadonnées
+        export_data = {
+            "model": best["model"],
+            "name": best["name"],
+            "problem_type": problem_type,
+            "feature_cols": st.session_state.get("feature_cols_used",
+                            st.session_state.get("feature_cols", [])),
+            "target_col": st.session_state.get("target_col", ""),
+            "encoders": st.session_state.get("encoders", {}),
+            "scaler": st.session_state.get("scaler"),
+            "scaled_columns": st.session_state.get("scaled_columns", []),
+            "fe_operations": st.session_state.get("fe_operations", []),
+            "test_score": best.get("test_score"),
+            "train_score": best.get("train_score"),
+        }
+        buffer = io.BytesIO()
+        pickle.dump(export_data, buffer)
+        buffer.seek(0)
+
+        model_filename = f"modele_{best['name'].replace(' ', '_').lower()}.mlmodel"
+        st.download_button(
+            label="📥 Télécharger le modèle (.mlmodel)",
+            data=buffer,
+            file_name=model_filename,
+            mime="application/octet-stream",
+            type="primary",
+        )
 
 
 def _afficher_entrainement_ts():

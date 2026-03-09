@@ -1591,7 +1591,9 @@ def _afficher_transformation_ts(df: pd.DataFrame):
 
             # 5. Supprimer les lignes avec NaN (début/fin de série, lags, rolling)
             n_before = len(df_h)
-            df_h = df_h.dropna(subset=created_cols).reset_index(drop=True)
+            # Nettoyer toutes les colonnes numériques (lags, rolling, target, features)
+            numeric_cols_h = df_h.select_dtypes(include="number").columns.tolist()
+            df_h = df_h.dropna(subset=numeric_cols_h).reset_index(drop=True)
             n_lost = n_before - len(df_h)
 
             # 6. Définir les features et basculer en régression

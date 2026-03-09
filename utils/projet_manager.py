@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-projet_manager.py — Gestion des projets (création, sauvegarde, chargement).
+projet_manager.py — Gestion des projets (création, sauvegarde, chargement, export portable).
 
 Chaque projet est un dossier dans projets/ avec :
     - rapport.json : état complet du projet

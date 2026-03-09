@@ -21,8 +21,10 @@ from modules.m4_entrainement import afficher_entrainement
 from modules.m5_evaluation import afficher_evaluation
 from modules.m6_prediction import afficher_optimisation_prediction
 from modules.aide_contextuelle import afficher_aide, afficher_glossaire
-from utils.projet_manager import exporter_projet_zip
+from utils.projet_manager import exporter_projet_zip, exporter_projet_portable, importer_projet_portable
 
+import os
+_IS_CLOUD = os.environ.get("STREAMLIT_SHARING_MODE") or os.environ.get("STREAMLIT_SERVER_HEADLESS")
 
 # ═══════════════════════════════════════════════════════════
 # CONFIGURATION DE LA PAGE
@@ -712,22 +714,36 @@ with st.sidebar:
         with st.expander("📖 Glossaire ML"):
             afficher_glossaire()
 
-        # Indicateur projet + export ZIP
+        # Indicateur projet + sauvegarde
         rapport = st.session_state.get("rapport")
-        if rapport and rapport.get("chemin"):
+        if rapport:
             st.divider()
             st.caption(f"📁 **Projet :** {rapport.get('nom', '?')}")
             st.caption(f"Étape {rapport.get('etape_courante', 0)}/{len(STEPS) - 1}")
-            with st.expander("📂 Emplacement des fichiers"):
-                st.code(rapport["chemin"], language=None)
-                st.caption("Ce dossier contient : rapport.json, "
-                           "data_raw.csv, data_cleaned.csv, modèles (.pkl), etc.")
-            zip_bytes = exporter_projet_zip(rapport["chemin"])
-            st.download_button("📦 Télécharger le projet (ZIP)",
-                               zip_bytes,
-                               f"{rapport.get('dossier', 'projet')}.zip",
-                               "application/zip",
-                               key="dl_zip")
+
+            # Export portable (.mlproject) — fonctionne partout
+            project_bytes = exporter_projet_portable(st.session_state)
+            nom_safe = rapport.get("nom", "projet").replace(" ", "_").lower()
+            st.download_button(
+                "💾 Sauvegarder mon projet",
+                project_bytes,
+                f"{nom_safe}.mlproject",
+                "application/octet-stream",
+                key="dl_mlproject",
+                type="primary",
+            )
+            st.caption("Téléchargez ce fichier pour reprendre plus tard.")
+
+            # Export ZIP (local uniquement, si dossier existant)
+            if rapport.get("chemin") and not _IS_CLOUD:
+                with st.expander("📂 Emplacement des fichiers"):
+                    st.code(rapport["chemin"], language=None)
+                zip_bytes = exporter_projet_zip(rapport["chemin"])
+                st.download_button("📦 Exporter en ZIP",
+                                   zip_bytes,
+                                   f"{rapport.get('dossier', 'projet')}.zip",
+                                   "application/zip",
+                                   key="dl_zip")
     else:
         # ── Pas de projet actif : sidebar minimale ──
         st.divider()
@@ -739,6 +755,12 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════
 def afficher_accueil():
     """Page d'accueil — choix entre nouveau projet ou chargement."""
+    if _IS_CLOUD:
+        st.info(
+            "☁️ **Version en ligne** — Vos données ne sont pas conservées sur le serveur. "
+            "Pensez à **sauvegarder votre projet** (bouton dans la barre latérale) "
+            "pour pouvoir le reprendre plus tard."
+        )
     st.markdown("""
     <div style="text-align:center; margin: 2rem 0 1rem;">
         <span style="font-size:3rem;">⚗️</span>
@@ -780,10 +802,30 @@ def afficher_accueil():
             </div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("📂  Charger un projet existant",
-                      use_container_width=True, key="btn_charger"):
-            st.session_state["accueil_action"] = "charger"
-            st.rerun()
+
+        # Upload .mlproject (fonctionne partout)
+        uploaded_project = st.file_uploader(
+            "Charger un fichier .mlproject",
+            type=["mlproject"],
+            key="upload_mlproject",
+            label_visibility="collapsed",
+        )
+        if uploaded_project is not None:
+            try:
+                nom = importer_projet_portable(uploaded_project.read(), st.session_state)
+                st.session_state["accueil_action"] = None
+                st.session_state["_reload_success"] = True
+                st.session_state["_reload_success_msg"] = f"✅ Projet « {nom} » rechargé !"
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Impossible de charger le projet : {e}")
+
+        # Charger depuis le disque local (uniquement en local)
+        if not _IS_CLOUD:
+            if st.button("📂  Charger un projet local",
+                          use_container_width=True, key="btn_charger"):
+                st.session_state["accueil_action"] = "charger"
+                st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════

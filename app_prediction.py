@@ -18,13 +18,8 @@ import pickle
 import io
 
 # ═══════════════════════════════════════════════════════════
-# CONFIG
+# CONFIG (set_page_config est dans app.py)
 # ═══════════════════════════════════════════════════════════
-st.set_page_config(
-    page_title="🔮 Prédiction — ML Studio",
-    page_icon="🔮",
-    layout="wide",
-)
 
 # ── CSS cohérent avec l'app principale ──
 st.markdown("""

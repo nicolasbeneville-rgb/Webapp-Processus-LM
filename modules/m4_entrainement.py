@@ -64,8 +64,15 @@ def afficher_entrainement():
     df = st.session_state.get("df_courant")
     target_col = st.session_state.get("target_col")
     feature_cols = st.session_state.get("feature_cols")
+    problem_type = st.session_state.get("problem_type", "")
+    is_ts = problem_type == "Série temporelle"
 
-    if df is None or not target_col or not feature_cols:
+    if df is None or not target_col:
+        st.warning("⚠️ Complétez d'abord les étapes précédentes (cible + variables).")
+        return
+
+    # feature_cols peut être vide pour les séries temporelles (ARIMA univarié)
+    if not is_ts and not feature_cols:
         st.warning("⚠️ Complétez d'abord les étapes précédentes (cible + variables).")
         return
 

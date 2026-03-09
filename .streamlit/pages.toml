@@ -1,0 +1,9 @@
+[[pages]]
+path = "app.py"
+name = "Créer un Modèle"
+icon = "⚗️"
+
+[[pages]]
+path = "pages/1_🔮_Faire_une_Prediction.py"
+name = "Faire une Prédiction"
+icon = "🔮"

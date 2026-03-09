@@ -1589,9 +1589,9 @@ def _afficher_transformation_ts(df: pd.DataFrame):
                     df_h, col, windows=rolling_wins, datetime_col=dt_col)
                 created_cols.extend(r_created)
 
-            # 5. Supprimer les lignes avec NaN (début/fin de série)
+            # 5. Supprimer les lignes avec NaN (début/fin de série, lags, rolling)
             n_before = len(df_h)
-            df_h = df_h.dropna(subset=[target_horizon_col]).reset_index(drop=True)
+            df_h = df_h.dropna(subset=created_cols).reset_index(drop=True)
             n_lost = n_before - len(df_h)
 
             # 6. Définir les features et basculer en régression

@@ -34,7 +34,10 @@ def creer_projet(nom: str) -> dict:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dossier = f"{timestamp}_{_safe_name(nom)}"
     chemin = os.path.join(PROJETS_DIR, dossier)
-    os.makedirs(chemin, exist_ok=True)
+    try:
+        os.makedirs(chemin, exist_ok=True)
+    except (OSError, IOError):
+        chemin = ""  # Pas de stockage disque (ex: Streamlit Cloud)
 
     rapport = {
         "nom": nom,
@@ -62,13 +65,16 @@ def sauvegarder_rapport(rapport: dict):
     chemin = rapport.get("chemin", "")
     if not chemin:
         return
-    path = os.path.join(chemin, "rapport.json")
+    try:
+        path = os.path.join(chemin, "rapport.json")
 
-    # Convertir les types non sérialisables
-    rapport_clean = _nettoyer_pour_json(rapport)
+        # Convertir les types non sérialisables
+        rapport_clean = _nettoyer_pour_json(rapport)
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(rapport_clean, f, ensure_ascii=False, indent=2, default=str)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rapport_clean, f, ensure_ascii=False, indent=2, default=str)
+    except (OSError, IOError):
+        pass  # Pas de stockage disque (ex: Streamlit Cloud)
 
 
 def _nettoyer_pour_json(obj):
@@ -137,8 +143,11 @@ def sauvegarder_csv(rapport: dict, df: pd.DataFrame, nom_fichier: str):
     chemin = rapport.get("chemin", "")
     if not chemin:
         return
-    path = os.path.join(chemin, nom_fichier)
-    df.to_csv(path, index=False)
+    try:
+        path = os.path.join(chemin, nom_fichier)
+        df.to_csv(path, index=False)
+    except (OSError, IOError):
+        pass  # Pas de stockage disque (ex: Streamlit Cloud)
 
 
 def charger_csv(chemin_projet: str, nom_fichier: str) -> pd.DataFrame:
@@ -154,9 +163,12 @@ def sauvegarder_modele(rapport: dict, model, nom: str):
     chemin = rapport.get("chemin", "")
     if not chemin:
         return
-    safe = _safe_name(nom)
-    path = os.path.join(chemin, f"model_{safe}.pkl")
-    joblib.dump(model, path)
+    try:
+        safe = _safe_name(nom)
+        path = os.path.join(chemin, f"model_{safe}.pkl")
+        joblib.dump(model, path)
+    except (OSError, IOError):
+        pass
 
 
 def charger_modele(chemin_projet: str, nom: str):
@@ -173,8 +185,11 @@ def sauvegarder_objet(rapport: dict, obj, nom_fichier: str):
     chemin = rapport.get("chemin", "")
     if not chemin:
         return
-    path = os.path.join(chemin, nom_fichier)
-    joblib.dump(obj, path)
+    try:
+        path = os.path.join(chemin, nom_fichier)
+        joblib.dump(obj, path)
+    except (OSError, IOError):
+        pass
 
 
 def charger_objet(chemin_projet: str, nom_fichier: str):

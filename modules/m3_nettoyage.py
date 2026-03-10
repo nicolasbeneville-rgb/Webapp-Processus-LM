@@ -100,11 +100,12 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
     num_cols = [c for c in df.select_dtypes(include="number").columns if c != val_col]
     value_cols = [val_col] + num_cols if val_col else num_cols
 
-    tab_dup, tab_cont, tab_interp, tab_valid = st.tabs([
+    tab_dup, tab_cont, tab_interp, tab_phys, tab_valid = st.tabs([
         "👯 5a. Doublons de date",
         "📊 5b. Continuité & Gaps",
         "🔧 5c. Interpolation",
-        "✅ 5d. Validation",
+        "🔬 5d. Valeurs aberrantes",
+        "✅ 5e. Validation",
     ])
 
     # ═══════════════════════════════════════
@@ -723,7 +724,215 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
                         st.rerun()
 
     # ═══════════════════════════════════════
-    # 5d. Validation
+    # 5d. Valeurs aberrantes (série par série)
+    # ═══════════════════════════════════════
+    with tab_phys:
+        st.subheader("Détection des valeurs aberrantes")
+        st.markdown(
+            "**Objectif :** Identifier et corriger les valeurs **physiquement impossibles** "
+            "ou **statistiquement aberrantes** pour chaque série.\n\n"
+            "Exemples : niveau d'eau négatif, température > 60°C, débit négatif…"
+        )
+
+        df = st.session_state.get("df_courant")
+        display_cols = [c for c in value_cols if c in df.columns
+                        and pd.api.types.is_numeric_dtype(df[c])]
+
+        if not display_cols:
+            st.info("Aucune colonne numérique à analyser.")
+        else:
+            # Résumé global
+            st.markdown("### 📊 Résumé par colonne")
+            summary_rows = []
+            for col in display_cols:
+                s = df[col].dropna()
+                n_neg = int((s < 0).sum())
+                q1, q3 = s.quantile(0.25), s.quantile(0.75)
+                iqr = q3 - q1
+                n_outliers_low = int((s < q1 - 3 * iqr).sum())
+                n_outliers_high = int((s > q3 + 3 * iqr).sum())
+                summary_rows.append({
+                    "Colonne": col,
+                    "Min": f"{s.min():.4g}",
+                    "Max": f"{s.max():.4g}",
+                    "Moyenne": f"{s.mean():.4g}",
+                    "Médiane": f"{s.median():.4g}",
+                    "Négatifs": n_neg if n_neg > 0 else "—",
+                    "Outliers bas (3×IQR)": n_outliers_low if n_outliers_low > 0 else "—",
+                    "Outliers hauts (3×IQR)": n_outliers_high if n_outliers_high > 0 else "—",
+                })
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True,
+                         hide_index=True)
+
+            # Analyse série par série
+            st.markdown("### 🔬 Analyse et correction série par série")
+
+            col_selected = st.selectbox(
+                "Sélectionnez une série à analyser",
+                display_cols, key="phys_col_select")
+
+            if col_selected:
+                s = df[col_selected].dropna()
+                q1, q3 = s.quantile(0.25), s.quantile(0.75)
+                iqr = q3 - q1
+
+                # Graphique de la série avec mise en évidence des aberrations
+                fig, axes = plt.subplots(1, 2, figsize=(12, 3.5))
+
+                # Série temporelle
+                ax1 = axes[0]
+                df_plot = df.copy()
+                df_plot[dt_col] = pd.to_datetime(df_plot[dt_col])
+                df_plot = df_plot.sort_values(dt_col)
+                ax1.plot(df_plot[dt_col], df_plot[col_selected],
+                         linewidth=0.6, color="steelblue", alpha=0.8)
+
+                # Bornes IQR
+                low_bound = q1 - 3 * iqr
+                high_bound = q3 + 3 * iqr
+                ax1.axhline(low_bound, color="#DC2626", linestyle="--",
+                            linewidth=0.8, alpha=0.6, label=f"Seuil bas ({low_bound:.2g})")
+                ax1.axhline(high_bound, color="#DC2626", linestyle="--",
+                            linewidth=0.8, alpha=0.6, label=f"Seuil haut ({high_bound:.2g})")
+                if (s < 0).any():
+                    ax1.axhline(0, color="#D97706", linestyle="-",
+                                linewidth=1, alpha=0.8, label="Zéro")
+
+                # Points aberrants
+                mask_out = (df_plot[col_selected] < low_bound) | (df_plot[col_selected] > high_bound)
+                if mask_out.any():
+                    ax1.scatter(df_plot.loc[mask_out, dt_col],
+                                df_plot.loc[mask_out, col_selected],
+                                color="#DC2626", s=8, zorder=5, label="Aberrants")
+                mask_neg = df_plot[col_selected] < 0
+                if mask_neg.any() and not (s < 0).all():
+                    ax1.scatter(df_plot.loc[mask_neg & ~mask_out, dt_col],
+                                df_plot.loc[mask_neg & ~mask_out, col_selected],
+                                color="#D97706", s=8, zorder=5, label="Négatifs")
+
+                ax1.set_title(f"{col_selected} — Série temporelle", fontsize=9,
+                              fontweight="bold")
+                ax1.legend(fontsize=6, loc="upper left")
+                ax1.grid(True, alpha=0.3)
+
+                # Distribution
+                ax2 = axes[1]
+                ax2.hist(s, bins=50, color="steelblue", alpha=0.7, edgecolor="white")
+                ax2.axvline(low_bound, color="#DC2626", linestyle="--", linewidth=1)
+                ax2.axvline(high_bound, color="#DC2626", linestyle="--", linewidth=1)
+                if (s < 0).any():
+                    ax2.axvline(0, color="#D97706", linestyle="-", linewidth=1)
+                ax2.set_title(f"{col_selected} — Distribution", fontsize=9,
+                              fontweight="bold")
+                ax2.grid(True, alpha=0.3)
+
+                fig.tight_layout()
+                st.pyplot(fig)
+                plt.close()
+
+                # Stats détaillées
+                n_neg = int((s < 0).sum())
+                n_out_low = int((s < low_bound).sum())
+                n_out_high = int((s > high_bound).sum())
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Valeurs négatives", n_neg)
+                c2.metric("Outliers bas", n_out_low)
+                c3.metric("Outliers hauts", n_out_high)
+                c4.metric("Total aberrant", n_neg + n_out_low + n_out_high)
+
+                # Contraintes physiques
+                st.markdown("#### ⚙️ Contraintes physiques")
+                st.caption("Définissez les bornes acceptables pour cette série. "
+                           "Les valeurs hors bornes seront remplacées.")
+
+                cp1, cp2, cp3 = st.columns(3)
+                with cp1:
+                    force_positive = st.checkbox(
+                        "Valeurs positives uniquement",
+                        value=n_neg > 0 and n_neg < len(s) * 0.1,
+                        key=f"phys_pos_{col_selected}",
+                        help="Remplace les valeurs négatives")
+                with cp2:
+                    use_min = st.checkbox("Définir un minimum",
+                                          key=f"phys_use_min_{col_selected}")
+                    if use_min:
+                        val_min = st.number_input(
+                            "Valeur minimum",
+                            value=float(low_bound),
+                            key=f"phys_min_{col_selected}")
+                    else:
+                        val_min = None
+                with cp3:
+                    use_max = st.checkbox("Définir un maximum",
+                                          key=f"phys_use_max_{col_selected}")
+                    if use_max:
+                        val_max = st.number_input(
+                            "Valeur maximum",
+                            value=float(high_bound),
+                            key=f"phys_max_{col_selected}")
+                    else:
+                        val_max = None
+
+                # Méthode de remplacement
+                replace_method = st.radio(
+                    "Que faire des valeurs hors bornes ?",
+                    ["Remplacer par la borne (capping)",
+                     "Remplacer par NaN (puis interpoler)",
+                     "Supprimer la ligne"],
+                    key=f"phys_method_{col_selected}",
+                    horizontal=True)
+
+                # Aperçu
+                n_affected = 0
+                mask = pd.Series(False, index=df.index)
+                if force_positive:
+                    mask = mask | (df[col_selected] < 0)
+                if val_min is not None:
+                    mask = mask | (df[col_selected] < val_min)
+                if val_max is not None:
+                    mask = mask | (df[col_selected] > val_max)
+                n_affected = int(mask.sum())
+
+                if n_affected > 0:
+                    st.warning(f"⚠️ **{n_affected} valeur(s)** seront corrigées "
+                               f"sur `{col_selected}`.")
+                else:
+                    st.success(f"✅ Aucune valeur hors bornes pour `{col_selected}`.")
+
+                if n_affected > 0 and st.button(
+                        f"🔧 Appliquer la correction sur {col_selected}",
+                        type="primary", key=f"phys_apply_{col_selected}"):
+
+                    df_fixed = df.copy()
+
+                    if "Remplacer par la borne" in replace_method:
+                        if force_positive:
+                            df_fixed.loc[df_fixed[col_selected] < 0, col_selected] = 0
+                        if val_min is not None:
+                            df_fixed.loc[df_fixed[col_selected] < val_min, col_selected] = val_min
+                        if val_max is not None:
+                            df_fixed.loc[df_fixed[col_selected] > val_max, col_selected] = val_max
+
+                    elif "Remplacer par NaN" in replace_method:
+                        df_fixed.loc[mask, col_selected] = np.nan
+
+                    elif "Supprimer la ligne" in replace_method:
+                        df_fixed = df_fixed[~mask].reset_index(drop=True)
+
+                    st.session_state["df_courant"] = df_fixed
+
+                    rapport = st.session_state.get("rapport", {})
+                    if rapport:
+                        ajouter_historique(rapport,
+                            f"Correction {col_selected} : {n_affected} valeurs "
+                            f"({replace_method})")
+                        sauvegarder_rapport(rapport)
+
+                    st.rerun()
+
+    # ═══════════════════════════════════════
+    # 5e. Validation
     # ═══════════════════════════════════════
     with tab_valid:
         st.subheader("Validation du nettoyage TS")

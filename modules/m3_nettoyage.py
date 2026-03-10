@@ -2391,15 +2391,28 @@ Les modèles de ML ne comprennent que les **nombres**. Il faut donc :
 
         # Analyse et propositions
         with st.expander("💡 Analyse et recommandations", expanded=True):
-            na_count = df.isna().sum().sum()
+            # Séparer les NaN "vrais" des NaN techniques (lags, rolling…)
+            _ART = ("_lag", "_rolling", "_lead", "_horizon", "_diff")
+            na_real = sum(
+                df[c].isna().sum() for c in df.columns
+                if not any(p in c.lower() for p in _ART)
+            )
+            na_tech = sum(
+                df[c].isna().sum() for c in df.columns
+                if any(p in c.lower() for p in _ART)
+            )
             n_cat = len(get_categorical_columns(df))
             n_num = len(get_numeric_columns(df))
             st.markdown(f"**État des données :** {len(df)} lignes × {len(df.columns)} colonnes")
-            st.markdown(f"- Valeurs manquantes restantes : **{na_count}**")
+            if na_tech > 0:
+                st.markdown(f"- Valeurs manquantes : **{na_real}** "
+                            f"(+ {na_tech} dans colonnes techniques — normal)")
+            else:
+                st.markdown(f"- Valeurs manquantes restantes : **{na_real}**")
             st.markdown(f"- Colonnes numériques : **{n_num}** | Catégorielles : **{n_cat}**")
 
             props = []
-            if na_count > 0:
+            if na_real > 0:
                 props.append("- ⚠️ Il reste des valeurs manquantes — retournez au nettoyage")
             if n_cat > 0 and not st.session_state.get("encoding_done"):
                 props.append("- Pensez à encoder les colonnes catégorielles avant la modélisation")

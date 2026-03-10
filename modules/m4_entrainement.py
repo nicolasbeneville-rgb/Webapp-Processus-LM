@@ -111,8 +111,6 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
 | **0.60 – 0.80** | 🟠 Acceptable, peut être amélioré |
 | **< 0.60** | 🔴 Le modèle a du mal → revoir les variables ou le nettoyage |
 """)
-        st.info("🔒 **Verrouillé** — Terminez d'abord les transformations (étape 6).")
-        return
 
     # Déterminer le type de problème
     problem_type = st.session_state.get("problem_type")

@@ -289,10 +289,12 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
 
             st.session_state["resultats_modeles"] = results
 
-            # Trier et trouver le meilleur
+            # Trier et trouver le meilleur (None → -999 pour les modèles en erreur)
             metric_key = "test_score"
-            results_sorted = sorted(results, key=lambda r: r.get(metric_key, 0),
-                                     reverse=True)
+            results_sorted = sorted(
+                results,
+                key=lambda r: r.get(metric_key) if r.get(metric_key) is not None else -999,
+                reverse=True)
             best = results_sorted[0]
             st.session_state["meilleur_modele"] = best
             st.session_state["trained_models"] = {r["name"]: r for r in results}
@@ -316,13 +318,13 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
 
     # Meilleur modèle
     best = st.session_state.get("meilleur_modele")
-    if best:
+    if best and best.get("test_score") is not None:
         st.success(f"🏆 **Meilleur modèle : {best['name']}**  "
                    f"(score test : {best.get('test_score', 0):.4f})")
 
         # Alerte overfitting
-        train_s = best.get("train_score", 0)
-        test_s = best.get("test_score", 0)
+        train_s = best.get("train_score") or 0
+        test_s = best.get("test_score") or 0
         if train_s > 0 and test_s > 0:
             overfit = (train_s - test_s) / max(train_s, 0.0001) * 100
             if overfit > 10:
@@ -334,8 +336,8 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
     st.divider()
     with st.expander("💡 Analyse et recommandations", expanded=True):
         best_r = st.session_state.get("meilleur_modele", {})
-        score = best_r.get("test_score", 0)
-        train_s = best_r.get("train_score", 0)
+        score = best_r.get("test_score") or 0
+        train_s = best_r.get("train_score") or 0
         gap = abs(train_s - score) * 100 if train_s > 0 else 0
 
         # Diagnostic

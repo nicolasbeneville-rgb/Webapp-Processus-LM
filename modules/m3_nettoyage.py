@@ -1058,7 +1058,21 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
     with tab_a:
         st.subheader("Boucher les trous")
 
-        cols_with_na = [c for c in df.columns if df[c].isna().sum() > 0]
+        # Filtrer les colonnes artificielles (lags, rolling, lead, horizon)
+        _ARTIFACT_PATTERNS = ("_lag", "_rolling", "_lead", "_horizon", "_diff")
+        cols_with_na_all = [c for c in df.columns if df[c].isna().sum() > 0]
+        cols_artifact = [c for c in cols_with_na_all
+                         if any(p in c.lower() for p in _ARTIFACT_PATTERNS)]
+        cols_with_na = [c for c in cols_with_na_all if c not in cols_artifact]
+
+        if cols_artifact:
+            st.info(
+                f"ℹ️ **{len(cols_artifact)} colonne(s) technique(s)** ignorées "
+                f"(lags, rolling, lead…). Leurs NaN sont normaux et seront "
+                f"nettoyés automatiquement à l'étape 6."
+            )
+            with st.expander("Voir les colonnes ignorées"):
+                st.caption(", ".join(cols_artifact))
 
         if not cols_with_na:
             st.success("✅ Aucune valeur manquante !")
@@ -1068,37 +1082,76 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
         else:
             st.markdown(f"**{len(cols_with_na)} colonne(s)** contiennent des trous.")
 
-            missing_strategies = {}
-            fixed_values = {}
-
+            # Construire le tableau résumé avec recommandations
+            reco_rows = []
+            reco_map = {}  # col -> recommended strategy key
             for col in cols_with_na:
                 na_count = df[col].isna().sum()
                 na_pct = round(na_count / len(df) * 100, 1)
+                rec = recommend_missing_strategy(df[col], col, na_pct)
+                # Mapper le label de recommandation vers la clé de stratégie
+                label_lower = rec["label"].lower()
+                if "médiane" in label_lower:
+                    reco_key = "median"
+                elif "moyenne" in label_lower:
+                    reco_key = "mean"
+                elif "fréquent" in label_lower or "mode" in label_lower:
+                    reco_key = "mode"
+                elif "supprimer la colonne" in label_lower:
+                    reco_key = "drop_column"
+                elif "supprimer" in label_lower:
+                    reco_key = "drop_rows"
+                else:
+                    reco_key = "median"  # fallback sûr
+                reco_map[col] = reco_key
+                reco_rows.append({
+                    "Colonne": col,
+                    "Trous": na_count,
+                    "%": f"{na_pct}%",
+                    "Recommandation": rec["label"],
+                    "Raison": rec["reason"][:80],
+                })
 
-                with st.expander(f"🕳️ **{col}** — {na_count} trous ({na_pct}%)",
-                                 expanded=(na_pct > 20)):
-                    rec = recommend_missing_strategy(df[col], col, na_pct)
-                    st.markdown(f"💡 **Recommandation :** {rec['label']}")
-                    st.caption(rec["reason"])
+            st.dataframe(pd.DataFrame(reco_rows), use_container_width=True,
+                         hide_index=True)
 
+            # Bouton principal : appliquer toutes les recommandations
+            st.markdown("#### Que souhaitez-vous faire ?")
+
+            apply_all = st.button(
+                "✅ Appliquer toutes les recommandations",
+                type="primary", key="apply_na_all",
+                help="Chaque colonne sera traitée selon la recommandation du tableau")
+
+            with st.expander("⚙️ Ajuster colonne par colonne (optionnel)"):
+                st.caption("Modifiez uniquement les colonnes où vous souhaitez "
+                           "une stratégie différente de la recommandation.")
+
+                missing_strategies = {}
+                fixed_values = {}
+                strat_map = {
+                    "✅ Recommandation auto": None,
+                    "Supprimer la colonne": "drop_column",
+                    "Supprimer les lignes": "drop_rows",
+                    "Remplacer par la moyenne": "mean",
+                    "Remplacer par la médiane": "median",
+                    "Valeur la plus fréquente": "mode",
+                    "Valeur fixe": "fixed",
+                }
+
+                for col in cols_with_na:
+                    na_count = df[col].isna().sum()
+                    na_pct = round(na_count / len(df) * 100, 1)
                     is_num = pd.api.types.is_numeric_dtype(df[col])
-                    options = ["Conserver", "Supprimer la colonne", "Supprimer les lignes"]
-                    if is_num:
-                        options += ["Remplacer par la moyenne", "Remplacer par la médiane"]
-                    options += ["Valeur la plus fréquente", "Valeur fixe"]
+                    options = list(strat_map.keys())
+                    if not is_num:
+                        options = [o for o in options
+                                   if o not in ("Remplacer par la moyenne",
+                                                "Remplacer par la médiane")]
 
-                    strat_map = {
-                        "Conserver": None, "Supprimer la colonne": "drop_column",
-                        "Supprimer les lignes": "drop_rows",
-                        "Remplacer par la moyenne": "mean",
-                        "Remplacer par la médiane": "median",
-                        "Valeur la plus fréquente": "mode",
-                        "Valeur fixe": "fixed",
-                    }
-
-                    choice = st.selectbox(f"Action pour « {col} »", options,
-                                          key=f"na_{col}",
-                                          help="Stratégie de remplacement des valeurs manquantes")
+                    choice = st.selectbox(
+                        f"{col} ({na_count} trous, {na_pct}%)",
+                        options, key=f"na_{col}")
                     strategy = strat_map.get(choice)
                     if strategy:
                         missing_strategies[col] = strategy
@@ -1106,29 +1159,44 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
                         fixed_values[col] = st.text_input(f"Valeur pour {col}",
                                                            key=f"fix_{col}")
 
-            if missing_strategies and st.button("🩹 Appliquer les corrections",
-                                                 type="primary", key="apply_na"):
+                if missing_strategies:
+                    if st.button("🩹 Appliquer mes choix personnalisés",
+                                 type="primary", key="apply_na_custom"):
+                        # Compléter avec les recommandations pour les colonnes non modifiées
+                        final_strategies = {}
+                        for col in cols_with_na:
+                            if col in missing_strategies:
+                                final_strategies[col] = missing_strategies[col]
+                            else:
+                                final_strategies[col] = reco_map[col]
+                        df_avant = df.copy()
+                        df = handle_missing(df, final_strategies, fixed_values)
+                        st.session_state["df_courant"] = df
+                        st.session_state["manquantes_done"] = True
+
+                        rapport = st.session_state.get("rapport", {})
+                        if rapport:
+                            rapport["nettoyage"]["valeurs_manquantes"] = str(final_strategies)
+                            ajouter_historique(rapport, "Valeurs manquantes traitées (personnalisé)")
+                            sauvegarder_rapport(rapport)
+                        st.rerun()
+
+            # Exécution du "Appliquer toutes les recommandations"
+            if apply_all:
                 df_avant = df.copy()
-                df = handle_missing(df, missing_strategies, fixed_values)
+                df = handle_missing(df, reco_map, {})
                 st.session_state["df_courant"] = df
                 st.session_state["manquantes_done"] = True
 
-                _afficher_avant_apres(df_avant, df, "Résultat du nettoyage")
-
                 rapport = st.session_state.get("rapport", {})
                 if rapport:
-                    rapport["nettoyage"]["valeurs_manquantes"] = str(missing_strategies)
-                    ajouter_historique(rapport, "Valeurs manquantes traitées")
+                    rapport["nettoyage"]["valeurs_manquantes"] = str(reco_map)
+                    ajouter_historique(rapport, "Valeurs manquantes traitées (recommandations auto)")
                     sauvegarder_rapport(rapport)
 
-                st.success(f"✅ Corrections appliquées. {len(df)} lignes restantes.")
+                st.success(f"✅ Corrections appliquées sur {len(cols_with_na)} colonnes. "
+                           f"{len(df)} lignes restantes.")
                 st.rerun()
-
-            # Bouton skip si pas de NA à traiter
-            if not missing_strategies:
-                if st.button("✅ Passer aux outliers", key="skip_na"):
-                    st.session_state["manquantes_done"] = True
-                    st.rerun()
 
     # ═══════════════════════════════════════
     # 5b. Doublons
@@ -1183,69 +1251,111 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
 
         st.subheader("Gérer les valeurs extrêmes")
 
-        num_cols = get_numeric_columns(df)
+        num_cols = [c for c in get_numeric_columns(df)
+                    if not any(p in c.lower() for p in _ARTIFACT_PATTERNS)]
         outlier_strategies = {}
         found = False
 
+        # Construire le résumé des outliers
+        outlier_info_map = {}
+        outlier_reco_map = {}
+        outlier_rows = []
         for col in num_cols:
             info = detect_outliers_iqr(df[col])
             if info["count"] > 0:
                 found = True
-                with st.expander(f"📊 **{col}** — {info['count']} outlier(s)"):
-                    # Mini boxplot
-                    fig, ax = plt.subplots(figsize=(4, 0.9))
-                    fig.set_facecolor("#F8F9FC")
-                    df[col].dropna().plot.box(ax=ax, vert=False, patch_artist=True,
-                                              boxprops=dict(facecolor=CHART_COLORS["accent"],
-                                                            edgecolor=CHART_COLORS["primary"]),
-                                              medianprops=dict(color=CHART_COLORS["danger"], linewidth=2),
-                                              flierprops=dict(marker="o", markerfacecolor=CHART_COLORS["warning"],
-                                                              markeredgecolor="white", markersize=5))
-                    ax.set_facecolor("#FFFFFF")
-                    ax.spines["top"].set_visible(False)
-                    ax.spines["right"].set_visible(False)
-                    ax.set_title(f"{col}", fontsize=9, fontweight="bold")
-                    ax.tick_params(labelsize=8)
-                    plt.tight_layout()
-                    st.pyplot(fig)
-                    plt.close()
-
-                    rec = recommend_outlier_strategy(df[col], col, info["count"])
-                    st.markdown(f"💡 {rec['label']}")
-                    st.caption(rec["reason"])
-
-                    choice = st.selectbox(f"Action pour « {col} »",
-                                          ["Conserver", "Supprimer", "Plafonner", "Log transform"],
-                                          key=f"out_{col}",
-                                          help="Conserver = ignorer, Plafonner = borner aux limites IQR")
-                    strat_map = {"Conserver": None, "Supprimer": "drop",
-                                 "Plafonner": "cap", "Log transform": "log"}
-                    s = strat_map.get(choice)
-                    if s:
-                        outlier_strategies[col] = s
+                outlier_info_map[col] = info
+                rec = recommend_outlier_strategy(df[col], col, info["count"])
+                # Mapper la recommandation
+                label_lower = rec["label"].lower()
+                if "plafonner" in label_lower or "cap" in label_lower:
+                    reco_key = "cap"
+                elif "supprimer" in label_lower or "drop" in label_lower:
+                    reco_key = "drop"
+                elif "log" in label_lower:
+                    reco_key = "log"
+                else:
+                    reco_key = "cap"  # fallback sûr
+                outlier_reco_map[col] = reco_key
+                outlier_rows.append({
+                    "Colonne": col,
+                    "Outliers": info["count"],
+                    "Min": f"{df[col].min():.4g}",
+                    "Max": f"{df[col].max():.4g}",
+                    "Recommandation": rec["label"],
+                    "Raison": rec["reason"][:80],
+                })
 
         if not found and num_cols:
             st.success("✅ Aucun outlier détecté.")
 
-        if outlier_strategies and st.button("🩹 Traiter les outliers", type="primary",
-                                             key="apply_outliers"):
-            df_avant = df.copy()
-            df = handle_outliers(df, outlier_strategies)
-            st.session_state["df_courant"] = df
-            st.session_state["outliers_done"] = True
+        if found:
+            st.dataframe(pd.DataFrame(outlier_rows), use_container_width=True,
+                         hide_index=True)
 
-            _afficher_avant_apres(df_avant, df, "Résultat du traitement")
+            st.markdown("#### Que souhaitez-vous faire ?")
 
-            rapport = st.session_state.get("rapport", {})
-            if rapport:
-                rapport["nettoyage"]["outliers"] = str(outlier_strategies)
-                ajouter_historique(rapport, "Outliers traités")
-                sauvegarder_rapport(rapport)
+            apply_out_all = st.button(
+                "✅ Appliquer toutes les recommandations",
+                type="primary", key="apply_outliers_all",
+                help="Chaque colonne sera traitée selon la recommandation du tableau")
 
-            st.success(f"✅ {len(df)} lignes restantes.")
-            st.rerun()
+            with st.expander("⚙️ Ajuster colonne par colonne (optionnel)"):
+                st.caption("Modifiez uniquement les colonnes où vous souhaitez "
+                           "une stratégie différente.")
+                custom_strategies = {}
+                strat_map = {
+                    "✅ Recommandation auto": None,
+                    "Plafonner (borner aux limites IQR)": "cap",
+                    "Supprimer les lignes": "drop",
+                    "Log transform": "log",
+                    "Conserver (ne rien faire)": "keep",
+                }
 
-        if not outlier_strategies or not found:
+                for col in outlier_reco_map:
+                    info = outlier_info_map[col]
+                    choice = st.selectbox(
+                        f"{col} ({info['count']} outliers)",
+                        list(strat_map.keys()), key=f"out_{col}")
+                    s = strat_map.get(choice)
+                    if s and s != "keep":
+                        custom_strategies[col] = s
+
+                if custom_strategies:
+                    if st.button("🩹 Appliquer mes choix personnalisés",
+                                 type="primary", key="apply_out_custom"):
+                        final = {}
+                        for col in outlier_reco_map:
+                            if col in custom_strategies:
+                                final[col] = custom_strategies[col]
+                            else:
+                                final[col] = outlier_reco_map[col]
+                        df_avant = df.copy()
+                        df = handle_outliers(df, final)
+                        st.session_state["df_courant"] = df
+                        st.session_state["outliers_done"] = True
+                        rapport = st.session_state.get("rapport", {})
+                        if rapport:
+                            rapport["nettoyage"]["outliers"] = str(final)
+                            ajouter_historique(rapport, "Outliers traités (personnalisé)")
+                            sauvegarder_rapport(rapport)
+                        st.rerun()
+
+            if apply_out_all:
+                df_avant = df.copy()
+                df = handle_outliers(df, outlier_reco_map)
+                st.session_state["df_courant"] = df
+                st.session_state["outliers_done"] = True
+                rapport = st.session_state.get("rapport", {})
+                if rapport:
+                    rapport["nettoyage"]["outliers"] = str(outlier_reco_map)
+                    ajouter_historique(rapport, "Outliers traités (recommandations auto)")
+                    sauvegarder_rapport(rapport)
+                st.success(f"✅ Outliers traités sur {len(outlier_reco_map)} colonnes. "
+                           f"{len(df)} lignes restantes.")
+                st.rerun()
+
+        if not outlier_reco_map or not found:
             if st.button("✅ Terminer le nettoyage", key="finish_clean"):
                 st.session_state["outliers_done"] = True
                 st.session_state["nettoyage_done"] = True

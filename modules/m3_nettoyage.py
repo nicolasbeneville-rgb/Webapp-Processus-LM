@@ -1975,14 +1975,6 @@ Les modèles de ML ne comprennent que les **nombres**. Il faut donc :
     encoding_done = st.session_state.get("encoding_done", False)
     scaling_done = st.session_state.get("scaling_done", False)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(f"{'🟢' if encoding_done else '🔵'} **6a. Encoding**")
-    with c2:
-        st.markdown(f"{'🟢' if scaling_done else ('🔵' if encoding_done else '🔒')} **6b. Scaling**")
-    with c3:
-        st.markdown("🟡 **6c. Feature Engineering** (optionnel)")
-
     tab_a, tab_b, tab_c = st.tabs([
         "🏷️ 6a. Encoding", "📐 6b. Scaling", "🔧 6c. Feature Engineering"
     ])

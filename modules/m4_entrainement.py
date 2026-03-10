@@ -331,6 +331,66 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
                 st.warning(f"⚠️ Overfitting possible : écart train/test = {overfit:.1f}%")
 
     # ═══════════════════════════════════════
+    # 4b. Courbes Réel vs Prédit (top 3 modèles)
+    # ═══════════════════════════════════════
+    if problem_type == "Régression":
+        # Sélectionner les modèles valides, triés par score
+        valid_results = [r for r in results
+                         if r.get("test_score") is not None and "test_pred" in r]
+        top_models = sorted(valid_results,
+                            key=lambda r: r["test_score"], reverse=True)[:3]
+
+        if top_models:
+            st.subheader("4b. Réel vs Prédit")
+            st.caption("Comparaison des prédictions des meilleurs modèles "
+                       "sur le jeu de test.")
+
+            y_test_vals = st.session_state.get("y_test")
+            is_chrono = st.session_state.get("ts_horizon_mode") or \
+                        st.session_state.get("split_method") == "Chronologique"
+
+            n_models = len(top_models)
+            fig, axes = plt.subplots(n_models, 1,
+                                     figsize=(12, 3.5 * n_models),
+                                     squeeze=False)
+
+            for i, r in enumerate(top_models):
+                ax = axes[i, 0]
+                y_pred = r["test_pred"]
+                score = r["test_score"]
+                name = r["name"]
+
+                if is_chrono and y_test_vals is not None:
+                    # Affichage chronologique : axe X = index temporel
+                    x_axis = range(len(y_test_vals))
+                    ax.plot(x_axis, y_test_vals.values, linewidth=1,
+                            color="#4F5BD5", alpha=0.8, label="Réel")
+                    ax.plot(x_axis, y_pred, linewidth=1,
+                            color="#DC2626", alpha=0.7, label="Prédit")
+                    ax.set_xlabel("Temps (index)", fontsize=8)
+                else:
+                    # Nuage de points réel vs prédit
+                    ax.scatter(y_test_vals, y_pred, s=8, alpha=0.4,
+                               color="#4F5BD5", edgecolors="none")
+                    # Ligne de parfaite prédiction
+                    lims = [min(y_test_vals.min(), y_pred.min()),
+                            max(y_test_vals.max(), y_pred.max())]
+                    ax.plot(lims, lims, "--", color="#DC2626",
+                            linewidth=1, alpha=0.6, label="Parfait")
+                    ax.set_xlabel("Réel", fontsize=8)
+                    ax.set_ylabel("Prédit", fontsize=8)
+
+                rmse = r.get("rmse", "?")
+                ax.set_title(f"{name}  —  R²={score:.4f}  |  RMSE={rmse}",
+                             fontsize=10, fontweight="bold")
+                ax.legend(fontsize=8)
+                ax.grid(True, alpha=0.3)
+
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+
+    # ═══════════════════════════════════════
     # 5. Analyse et propositions
     # ═══════════════════════════════════════
     st.divider()

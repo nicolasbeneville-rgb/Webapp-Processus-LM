@@ -1048,17 +1048,6 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
     doublons_done = st.session_state.get("doublons_done", False)
     outliers_done = st.session_state.get("outliers_done", False)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        icon1 = "🟢" if manquantes_done else "🔵"
-        st.markdown(f"{icon1} **5a. Valeurs manquantes**")
-    with c2:
-        icon2 = "🟢" if doublons_done else ("🔵" if manquantes_done else "🔒")
-        st.markdown(f"{icon2} **5b. Doublons**")
-    with c3:
-        icon3 = "🟢" if outliers_done else ("🔵" if doublons_done else "🔒")
-        st.markdown(f"{icon3} **5c. Outliers**")
-
     tab_a, tab_b, tab_c = st.tabs(["🕳️ 5a. Valeurs manquantes",
                                     "👯 5b. Doublons",
                                     "📊 5c. Outliers"])

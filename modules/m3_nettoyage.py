@@ -1609,6 +1609,11 @@ def _afficher_transformation_ts(df: pd.DataFrame):
             st.session_state["ts_horizon_mode"] = True
             st.session_state["ts_horizon_value"] = horizon
 
+            # Valider automatiquement l'étape 6 (les features sont prêtes)
+            st.session_state["encoding_done"] = True
+            st.session_state["scaling_done"] = True
+            st.session_state["transformation_done"] = True
+
             rapport = st.session_state.get("rapport", {})
             if rapport:
                 rapport["colonne_cible"] = target_horizon_col
@@ -1637,6 +1642,13 @@ def _afficher_transformation_ts(df: pd.DataFrame):
                 f"{len(feature_candidates)} variables explicatives · "
                 f"{n_lost} lignes perdues (bords) · "
                 f"**Mode : Régression supervisée**")
+
+            # Auto-avancer vers l'étape 7
+            rapport = st.session_state.get("rapport", {})
+            if rapport:
+                rapport["etape_courante"] = max(rapport.get("etape_courante", 0), 7)
+                sauvegarder_rapport(rapport)
+            st.session_state["_pending_step"] = 7
             st.rerun()
 
         # Afficher un résumé si déjà appliqué

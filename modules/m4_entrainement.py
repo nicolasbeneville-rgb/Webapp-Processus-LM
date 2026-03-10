@@ -65,7 +65,7 @@ def afficher_entrainement():
     target_col = st.session_state.get("target_col")
     feature_cols = st.session_state.get("feature_cols")
     problem_type = st.session_state.get("problem_type", "")
-    is_ts = problem_type == "Série temporelle"
+    is_ts = problem_type == "Série temporelle" or st.session_state.get("ts_horizon_mode")
 
     if df is None or not target_col:
         st.warning("⚠️ Complétez d'abord les étapes précédentes (cible + variables).")

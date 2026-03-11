@@ -109,11 +109,16 @@ section[data-testid="stSidebar"] .stRadio [aria-checked="true"] span {
     font-weight: 700;
 }
 section[data-testid="stSidebar"] .stProgress > div > div {
-    background: linear-gradient(90deg, #E74C3C, #F39C12) !important;
+    background: linear-gradient(90deg, #4F5BD5, #7C3AED) !important;
     border-radius: 4px;
+    height: 6px !important;
 }
 section[data-testid="stSidebar"] .stProgress > div {
     background: rgba(255,255,255,0.12) !important;
+    height: 6px !important;
+}
+section[data-testid="stSidebar"] .stProgress p {
+    display: none !important;
 }
 section[data-testid="stSidebar"] hr {
     border-color: rgba(255,255,255,0.1) !important;
@@ -166,6 +171,26 @@ section[data-testid="stSidebar"] .stButton:first-child > button {
 section[data-testid="stSidebar"] .stButton:first-child > button:hover {
     color: #FF6B6B !important;
     background: transparent !important;
+}
+
+/* ══════════════════════════════════════════
+   SIDEBAR — sous-étapes (2e radio)
+   ══════════════════════════════════════════ */
+section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio label {
+    padding-left: 12px;
+    margin-left: 8px;
+    border-left: 2px solid rgba(255,255,255,0.15);
+}
+section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio label span {
+    font-size: 0.78rem;
+    font-weight: 400;
+}
+section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio [aria-checked="true"] {
+    border-left-color: #F39C12;
+}
+section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio [aria-checked="true"] span {
+    color: #FFFFFF !important;
+    font-weight: 600;
 }
 
 /* ══════════════════════════════════════════

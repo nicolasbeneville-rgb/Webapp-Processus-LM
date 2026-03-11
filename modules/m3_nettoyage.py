@@ -27,6 +27,7 @@ from src.feature_engineering import (
     rename_column, drop_column, detect_datetime_columns,
     extract_datetime_features, create_lag_features, create_rolling_features,
     create_horizon_target, create_lead_features,
+    create_seasonal_encoding, create_delta_features,
 )
 from src.guide import (
     recommend_missing_strategy, recommend_outlier_strategy,
@@ -100,18 +101,13 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
     num_cols = [c for c in df.select_dtypes(include="number").columns if c != val_col]
     value_cols = [val_col] + num_cols if val_col else num_cols
 
-    tab_dup, tab_cont, tab_interp, tab_phys, tab_valid = st.tabs([
-        "👯 5a. Doublons de date",
-        "📊 5b. Continuité & Gaps",
-        "🔧 5c. Interpolation",
-        "🔬 5d. Valeurs aberrantes",
-        "✅ 5e. Validation",
-    ])
+    # Navigation par sous-étape (piloté par la sidebar)
+    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 5a. Doublons de date
     # ═══════════════════════════════════════
-    with tab_dup:
+    if sub_step == 0:
         st.subheader("Détection des doublons de date")
         st.markdown(
             "**Objectif :** Vérifier qu'il n'y a pas de **dates en double** dans la série. "
@@ -224,7 +220,7 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 5b. Analyse de continuité
     # ═══════════════════════════════════════
-    with tab_cont:
+    if sub_step == 1:
         st.subheader("Analyse de la continuité temporelle")
         st.markdown(
             "**Objectif :** Vérifier que la série de dates est régulière et "
@@ -417,7 +413,7 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 5c. Interpolation / Resampling
     # ═══════════════════════════════════════
-    with tab_interp:
+    if sub_step == 2:
         st.subheader("Traitement des trous")
         st.markdown(
             "**Objectif :** Combler les **dates absentes** et les **valeurs manquantes** "
@@ -726,7 +722,7 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 5d. Valeurs aberrantes (série par série)
     # ═══════════════════════════════════════
-    with tab_phys:
+    if sub_step == 3:
         st.subheader("Détection des valeurs aberrantes")
         st.markdown(
             "**Objectif :** Identifier et corriger les valeurs **physiquement impossibles** "
@@ -934,7 +930,7 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 5e. Validation
     # ═══════════════════════════════════════
-    with tab_valid:
+    if sub_step == 4:
         st.subheader("Validation du nettoyage TS")
         st.markdown(
             "**Objectif :** Vérifier que la série est prête (plus de trous, "
@@ -1048,14 +1044,13 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
     doublons_done = st.session_state.get("doublons_done", False)
     outliers_done = st.session_state.get("outliers_done", False)
 
-    tab_a, tab_b, tab_c = st.tabs(["🕳️ 5a. Valeurs manquantes",
-                                    "👯 5b. Doublons",
-                                    "📊 5c. Outliers"])
+    # Navigation par sous-étape (piloté par la sidebar)
+    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 5a. Valeurs manquantes
     # ═══════════════════════════════════════
-    with tab_a:
+    if sub_step == 0:
         st.subheader("Boucher les trous")
 
         # Filtrer les colonnes artificielles (lags, rolling, lead, horizon)
@@ -1201,9 +1196,9 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
     # ═══════════════════════════════════════
     # 5b. Doublons
     # ═══════════════════════════════════════
-    with tab_b:
+    if sub_step == 1:
         if not manquantes_done:
-            st.info("🔒 **Verrouillé** — Traitez d'abord les valeurs manquantes (onglet 5a).")
+            st.info("🔒 **Verrouillé** — Traitez d'abord les valeurs manquantes.")
         else:
             st.subheader("Supprimer les lignes en double")
             n_dup = int(df.duplicated().sum())
@@ -1244,9 +1239,9 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
     # ═══════════════════════════════════════
     # 5c. Outliers
     # ═══════════════════════════════════════
-    with tab_c:
+    if sub_step == 2:
         if not doublons_done:
-            st.info("🔒 **Verrouillé** — Traitez d'abord les doublons (onglet 5b).")
+            st.info("🔒 **Verrouillé** — Traitez d'abord les doublons.")
             return
 
         st.subheader("Gérer les valeurs extrêmes")
@@ -1392,18 +1387,13 @@ def _afficher_transformation_ts(df: pd.DataFrame):
         st.warning("⚠️ Colonne cible TS non définie. Retournez au diagnostic.")
         return
 
-    tab_reco, tab_transform, tab_scale, tab_horizon, tab_valid = st.tabs([
-        "📊 6a. Analyse & Recommandations",
-        "🔧 6b. Transformations",
-        "📐 6c. Scaling",
-        "🎯 6d. Prédiction horizon",
-        "✅ 6e. Valider",
-    ])
+    # Navigation par sous-étape (piloté par la sidebar)
+    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 6a. Recommandations automatiques
     # ═══════════════════════════════════════
-    with tab_reco:
+    if sub_step == 0:
         st.subheader("Analyse de la série et recommandations")
 
         # Préparer la série
@@ -1479,7 +1469,7 @@ def _afficher_transformation_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 6b. Appliquer des transformations
     # ═══════════════════════════════════════
-    with tab_transform:
+    if sub_step == 1:
         st.subheader("Transformations disponibles")
         st.caption("**Objectif :** appliquer des transformations mathématiques "
                    "pour stabiliser la variance, réduire l'asymétrie ou retirer "
@@ -1505,11 +1495,38 @@ def _afficher_transformation_ts(df: pd.DataFrame):
             st.info("Aucune transformation sélectionnée.")
 
         elif transform_action.startswith("Log"):
+            st.info(
+                "**Quand utiliser le log ?** Sur les variables très asymétriques "
+                "(skew > 1) avec beaucoup de valeurs proches de 0 et quelques "
+                "grandes valeurs. Exemples typiques : pluviométrie (beaucoup de "
+                "jours sans pluie), débits de rivière.\n\n"
+                "**Faut-il transformer la cible (variable à prédire) ?** "
+                "Généralement **non** pour un niveau de barrage ou une mesure "
+                "dont l'échelle est déjà interprétable. Transformer la cible en "
+                "log complique l'interprétation des erreurs (MAE, RMSE) sans "
+                "gain réel quand la distribution est déjà raisonnablement "
+                "symétrique (skew entre -1.5 et 1.5).\n\n"
+                "**En résumé :** appliquez le log sur les *variables explicatives* "
+                "très asymétriques (pluie, débits), mais pas sur la cible.")
+
+            # Avertir si la cible est sélectionnée par défaut
+            default_log_cols = [c for c in numeric_cols if c != val_col
+                                and df[c].dropna().skew() > 1.5]
             cols_log = st.multiselect(
                 "Colonnes à transformer", numeric_cols,
-                default=[val_col] if val_col in numeric_cols else [],
+                default=default_log_cols if default_log_cols else [],
                 key="ts_log_cols",
-                help="Colonnes sur lesquelles appliquer la transformation logarithmique")
+                help="Colonnes sur lesquelles appliquer la transformation logarithmique. "
+                     "Les colonnes très asymétriques sont pré-sélectionnées.")
+
+            if cols_log and val_col in cols_log:
+                st.warning(
+                    f"⚠️ **Attention** : vous avez sélectionné la cible "
+                    f"« {val_col} ». Appliquer un log sur la cible est "
+                    f"rarement recommandé pour une régression de niveau. "
+                    f"Les erreurs (MAE, RMSE) seront en échelle log et "
+                    f"difficiles à interpréter. Retirez-la sauf si vous "
+                    f"avez une bonne raison.")
 
             if cols_log:
                 # ── Aperçu avant/après ──
@@ -1559,18 +1576,32 @@ def _afficher_transformation_ts(df: pd.DataFrame):
                 if len(cols_log) > n_show:
                     st.caption(f"… et {len(cols_log) - n_show} autre(s) colonne(s).")
 
-                if st.button("📐 Appliquer le Log", type="primary", key="ts_apply_log"):
+                # Protection double-application
+                already_logged = st.session_state.get("ts_log_applied_cols", [])
+                double_cols = [c for c in cols_log if c in already_logged]
+                if double_cols:
+                    st.warning(
+                        f"**Log déjà appliqué** sur : {', '.join(double_cols)}. "
+                        f"Appliquer log deux fois n'a pas de sens mathématique "
+                        f"(log(log(x)) compresse trop les valeurs). "
+                        f"Retirez ces colonnes de la sélection.")
+
+                safe_cols = [c for c in cols_log if c not in already_logged]
+                btn_disabled = len(safe_cols) == 0
+                if st.button("📐 Appliquer le Log", type="primary",
+                             key="ts_apply_log", disabled=btn_disabled):
                     st.session_state["df_courant"] = df_preview
                     st.session_state["ts_log_applied"] = True
-                    st.session_state["ts_log_applied_cols"] = cols_log
+                    all_logged = list(set(already_logged + safe_cols))
+                    st.session_state["ts_log_applied_cols"] = all_logged
                     rapport = st.session_state.get("rapport", {})
                     if rapport:
                         rapport.setdefault("nettoyage", {})["ts_transform"] = {
-                            "type": "log", "columns": cols_log}
+                            "type": "log", "columns": all_logged}
                         ajouter_historique(rapport,
-                            f"Log appliqué sur {', '.join(cols_log)}")
+                            f"Log appliqué sur {', '.join(safe_cols)}")
                         sauvegarder_rapport(rapport)
-                    st.success(f"✅ Log appliqué sur {len(cols_log)} colonne(s). "
+                    st.success(f"✅ Log appliqué sur {len(safe_cols)} colonne(s). "
                                "N'oubliez pas d'inverser (expm1) sur les prédictions.")
                     st.rerun()
 
@@ -1707,7 +1738,7 @@ def _afficher_transformation_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 6c. Scaling (optionnel)
     # ═══════════════════════════════════════
-    with tab_scale:
+    if sub_step == 2:
         st.subheader("Mise à l'échelle (optionnel)")
         st.caption("**Objectif :** normaliser les colonnes numériques pour "
                    "améliorer la convergence de certains modèles. "
@@ -1765,37 +1796,105 @@ def _afficher_transformation_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 6d. Prédiction horizon (multivarié)
     # ═══════════════════════════════════════
-    with tab_horizon:
+    if sub_step == 3:
         st.subheader("Prédiction à horizon (série multivariée)")
         st.markdown(
             "**Objectif :** Prédire la cible **N jours à l'avance** à partir "
             "des valeurs actuelles et des variables exogènes (météo, débits…).\n\n"
             "L'app va automatiquement :\n"
-            "1. Créer la **cible décalée** (ex: niveau à t+15)\n"
+            "1. Créer la **cible décalée** (ex: niveau à t+10)\n"
             "2. Créer des **features lag** (valeurs passées)\n"
-            "3. Créer des **features lead** (cumul futur, ex: pluie prévue)\n"
-            "4. Basculer en **régression supervisée** pour l'entraînement\n"
+            "3. Créer des **features delta** (tendance récente : montée ou descente)\n"
+            "4. Créer des **features lead** (cumul futur, ex: pluie prévue)\n"
+            "5. Créer des **moyennes glissantes** (rolling)\n"
+            "6. Encoder la **saisonnalité** en sin/cos\n"
+            "7. Basculer en **régression supervisée** pour l'entraînement\n"
         )
 
         numeric_cols = [c for c in df.select_dtypes(include="number").columns]
         other_cols = [c for c in numeric_cols if c != val_col]
 
-        # Horizon
+        # ── Horizon ──
         horizon = st.number_input(
-            "📅 Horizon de prédiction (en périodes / jours)",
-            min_value=1, max_value=365, value=15,
+            "Horizon de prédiction (en périodes / jours)",
+            min_value=1, max_value=365, value=10,
             key="ts_horizon",
             help="Nombre de périodes dans le futur à prédire. "
-                 "Ex: 15 pour prédire le niveau du barrage dans 15 jours.")
+                 "Ex: 10 pour prédire la valeur dans 10 jours.")
+
+        # ── Analyse rapide d'autocorrélation pour guider les choix ──
+        st.divider()
+        with st.expander("Comment choisir les bons paramètres ci-dessous ? (cliquez pour lire)", expanded=False):
+            st.markdown(
+                "**L'autocorrélation** mesure à quel point la valeur d'aujourd'hui "
+                "ressemble à celle de N jours avant. Plus elle est forte, plus ce "
+                "lag est utile comme feature.\n\n"
+                "**Comment lire le graphique ci-dessous :**\n"
+                "- Chaque barre = un décalage (1 jour, 2 jours, etc.)\n"
+                "- Barre haute (proche de 1) = forte ressemblance → lag utile\n"
+                "- Barre basse (proche de 0) = peu de lien → lag inutile\n"
+                "- La zone bleue = seuil de significativité (en dessous = bruit)\n\n"
+                "**Règle simple :** Gardez les lags dont la barre **dépasse "
+                "largement la zone bleue**."
+            )
+
+            # Mini graphique ACF pour guider visuellement
+            try:
+                from statsmodels.tsa.stattools import acf
+                ts_for_acf = df[val_col].dropna()
+                max_lag = min(35, len(ts_for_acf) // 3)
+                if max_lag > 5:
+                    acf_vals, confint = acf(
+                        ts_for_acf, nlags=max_lag, alpha=0.05)
+                    fig_acf, ax_acf = plt.subplots(figsize=(8, 2.5))
+                    lags_range = list(range(len(acf_vals)))
+                    ax_acf.bar(lags_range, acf_vals, width=0.6,
+                               color="steelblue", alpha=0.85)
+                    # Intervalle de confiance
+                    upper = confint[:, 1] - acf_vals
+                    ax_acf.fill_between(lags_range, -1.96/np.sqrt(len(ts_for_acf)),
+                                        1.96/np.sqrt(len(ts_for_acf)),
+                                        color="lightblue", alpha=0.4,
+                                        label="Seuil (non significatif)")
+                    ax_acf.set_xlabel("Décalage (jours)", fontsize=9)
+                    ax_acf.set_ylabel("Autocorrélation", fontsize=9)
+                    ax_acf.set_title(
+                        f"Autocorrélation de « {val_col} » — "
+                        f"les barres hautes = lags utiles",
+                        fontsize=10, fontweight="bold")
+                    ax_acf.legend(fontsize=8)
+                    ax_acf.tick_params(labelsize=8)
+                    fig_acf.tight_layout()
+                    st.pyplot(fig_acf)
+                    plt.close()
+
+                    # Résumé textuel des autocorrélations clés
+                    lag_summary = []
+                    for lg in [1, 3, 7, 10, 14, 30]:
+                        if lg < len(acf_vals):
+                            lag_summary.append(f"lag {lg}j = {acf_vals[lg]:.3f}")
+                    st.caption("Autocorrélations clés : " + " · ".join(lag_summary))
+            except Exception:
+                st.caption("(graphique ACF non disponible — "
+                           "installez statsmodels pour l'afficher)")
 
         st.divider()
 
-        # Lag features
-        st.markdown("### 🔙 Variables lag (valeurs actuelles et passées)")
-        st.caption(
-            "Les **lags** capturent l'inertie : le niveau actuel et des jours "
-            "précédents, les débits récents, etc. Ce sont les données "
-            "**disponibles au moment de la prédiction**.")
+        # ── Lag features ──
+        st.markdown("### 🔙 Variables lag (valeurs passées)")
+        st.info(
+            "**Qu'est-ce qu'un lag ?** C'est la valeur de N jours avant. "
+            "Par exemple, lag 7 = la valeur d'il y a 7 jours.\n\n"
+            "**Comment choisir ?**\n"
+            "- **Lag 1** : la valeur d'hier — presque toujours utile\n"
+            "- **Lag 3** : tendance sur quelques jours\n"
+            "- **Lag 7** : rythme hebdomadaire\n"
+            "- **Lag 14+** : utile seulement si l'autocorrélation est encore forte "
+            "(voir graphique ci-dessus)\n\n"
+            "**Conseil :** Les lags 1, 3 et 7 sur la cible sont généralement "
+            "les plus utiles. Consultez le graphique d'autocorrélation ci-dessus "
+            "pour vérifier : si la barre est encore haute au-delà de 14j, "
+            "ajoutez-les. Sinon, inutile de surcharger.")
 
         lag_cols = st.multiselect(
             "Colonnes pour les lags", numeric_cols,
@@ -1804,18 +1903,53 @@ def _afficher_transformation_ts(df: pd.DataFrame):
             help="Colonnes dont créer des décalages temporels (valeurs passées)")
         lag_values = st.text_input(
             "Lags à créer (séparés par des virgules)",
-            value="0, 1, 2, 3, 7, 14",
+            value="1, 3, 7",
             key="ts_horizon_lags",
-            help="0 = valeur du jour, 1 = t−1, 7 = t−7, etc.")
+            help="1 = hier (t-1), 3 = il y a 3 jours, 7 = il y a 1 semaine, etc.")
 
         st.divider()
 
-        # Lead features (cumul futur)
+        # ── Delta features (tendance récente) ──
+        st.markdown("### 📉 Variation récente (delta)")
+        st.info(
+            "**Qu'est-ce qu'un delta ?** C'est la *différence* entre la valeur "
+            "d'aujourd'hui et celle d'il y a N jours.\n\n"
+            "- **Delta positif** = la valeur monte\n"
+            "- **Delta négatif** = la valeur descend\n\n"
+            "**Pourquoi c'est utile ?** Les lags seuls donnent des niveaux absolus, "
+            "mais le delta capture la *direction* du mouvement. "
+            "Par exemple, une valeur à 100 qui monte depuis 3 jours ne se "
+            "comporte pas comme une valeur à 100 qui descend depuis 3 jours.\n\n"
+            "**Conseil :** delta 3j et 7j sur la cible sont généralement suffisants.")
+
+        delta_col = st.selectbox(
+            "Colonne pour les deltas",
+            numeric_cols,
+            index=numeric_cols.index(val_col) if val_col in numeric_cols else 0,
+            key="ts_horizon_delta_col",
+            help="Colonne sur laquelle calculer les variations (généralement la cible)")
+        delta_values_txt = st.text_input(
+            "Périodes de comparaison (séparées par des virgules)",
+            value="3, 7",
+            key="ts_horizon_deltas",
+            help="3 = variation sur 3 jours, 7 = variation sur 1 semaine")
+
+        st.divider()
+
+        # ── Lead features (cumul futur) ──
         st.markdown("### ⏩ Variables lead (prévisions futures)")
-        st.caption(
-            "Les **leads** injectent des prévisions connues à l'avance "
-            "(ex: la pluviométrie prévue à 15 jours par Météo). "
-            "L'agrégation (somme, moyenne…) cumule les valeurs sur l'horizon.")
+        st.info(
+            "**Qu'est-ce qu'un lead ?** C'est une information sur le *futur* "
+            "que vous connaissez déjà grâce aux prévisions météo.\n\n"
+            "Par exemple : la pluie prévue pour les 10 prochains jours. "
+            "On la résume en un chiffre (somme, moyenne, max…).\n\n"
+            "**Quelle agrégation choisir ?**\n"
+            "- **Somme** : pour la pluie (quantité totale attendue)\n"
+            "- **Moyenne** : pour la température (niveau moyen attendu)\n"
+            "- **Max** : pour identifier un événement intense (pic de pluie)\n\n"
+            "**Conseil :** Si vous n'avez pas de prévision météo dans vos données, "
+            "laissez cette section vide. Les leads seront calculés à partir de "
+            "l'historique (utile pour l'entraînement mais attention au biais).")
 
         lead_cols = st.multiselect(
             "Colonnes pour les leads (prévisions futures)",
@@ -1831,12 +1965,21 @@ def _afficher_transformation_ts(df: pd.DataFrame):
             help="Comment agréger les valeurs futures sur la fenêtre de prédiction")
         lead_agg_key = lead_agg.split(" ")[0]
 
-        # Rolling features
+        # ── Rolling features ──
         st.divider()
         st.markdown("### 📈 Moyennes glissantes (rolling)")
-        st.caption(
-            "Capturent les **tendances récentes** : moyenne et écart-type "
-            "sur une fenêtre glissante passée.")
+        st.info(
+            "**Qu'est-ce qu'une moyenne glissante ?** C'est la moyenne des N "
+            "derniers jours. Elle « lisse » les variations journalières pour "
+            "faire ressortir la tendance de fond.\n\n"
+            "**Comment choisir la taille de fenêtre ?**\n"
+            "- **7 jours** : tendance de la semaine (réactif)\n"
+            "- **14 jours** : tendance sur 2 semaines\n"
+            "- **30 jours** : tendance du mois (plus lisse, moins réactif)\n\n"
+            "**Conseil :** On calcule aussi l'**écart-type glissant** — il mesure "
+            "la *variabilité* récente. Une forte variabilité peut indiquer "
+            "une période instable ou de changement rapide.")
+
         rolling_cols = st.multiselect(
             "Colonnes pour les moyennes glissantes",
             numeric_cols,
@@ -1848,11 +1991,52 @@ def _afficher_transformation_ts(df: pd.DataFrame):
             value="7, 14, 30",
             key="ts_horizon_rolling_windows")
 
+        # ── Saisonnalité sin/cos ──
+        st.divider()
+        st.markdown("### 🌊 Encodage saisonnalité (sin/cos)")
+
+        has_dt = dt_col and dt_col in df.columns
+        if has_dt:
+            st.info(
+                "**Pourquoi sin/cos ?** Les saisons suivent un cycle : "
+                "printemps → été → automne → hiver → printemps… "
+                "Si on donne juste le numéro du jour (1 à 365), le modèle "
+                "ne comprend pas que le **31 décembre** (jour 365) est juste "
+                "à côté du **1er janvier** (jour 1).\n\n"
+                "En transformant le jour de l'année en **sinus** et **cosinus**, "
+                "on crée un cercle : les jours proches sur le calendrier sont "
+                "aussi proches dans les données. C'est comme mettre les mois "
+                "sur une horloge plutôt que sur une ligne droite.\n\n"
+                "**Résultat :** 2 colonnes sont créées — `saison_sin` et "
+                "`saison_cos`. Ensemble, elles encodent le jour de l'année "
+                "de façon continue et cyclique.")
+            add_seasonal = st.checkbox(
+                "Ajouter l'encodage saisonnier sin/cos",
+                value=True,
+                key="ts_horizon_seasonal",
+                help="Recommandé pour toute donnée avec un cycle annuel")
+        else:
+            add_seasonal = False
+            st.warning("Pas de colonne date détectée — encodage saisonnier "
+                       "non disponible.")
+
         st.divider()
 
+        # ══════════════════════════════════════════
         # Aperçu & application
+        # ══════════════════════════════════════════
+
+        # Protection double-application
+        horizon_already = st.session_state.get("ts_horizon_mode", False)
+        if horizon_already:
+            st.warning(
+                "**Features horizon déjà construites.** "
+                "Pour les reconstruire avec des paramètres différents, "
+                "rechargez les données depuis l'étape précédente.")
+
         if st.button("🚀 Construire les features horizon", type="primary",
-                      key="ts_apply_horizon"):
+                      key="ts_apply_horizon",
+                      disabled=horizon_already):
             df_h = df.copy()
             if dt_col and dt_col in df_h.columns:
                 df_h = df_h.sort_values(dt_col).reset_index(drop=True)
@@ -1868,24 +2052,35 @@ def _afficher_transformation_ts(df: pd.DataFrame):
             try:
                 lags_list = [int(x.strip()) for x in lag_values.split(",") if x.strip()]
             except ValueError:
-                lags_list = [0, 1, 2, 3]
+                lags_list = [1, 3, 7]
 
             for col in lag_cols:
                 for lag in lags_list:
                     if lag == 0:
-                        # lag 0 = garder la colonne originale (feature "actuelle")
                         continue
                     new_col = f"{col}_lag{lag}"
                     df_h[new_col] = df_h[col].shift(lag)
                     created_cols.append(new_col)
 
-            # 3. Lead features
+            # 3. Delta features (tendance récente)
+            try:
+                delta_list = [int(x.strip()) for x in delta_values_txt.split(",")
+                              if x.strip()]
+            except ValueError:
+                delta_list = [3, 7]
+
+            if delta_col and delta_list:
+                df_h, delta_created = create_delta_features(
+                    df_h, delta_col, deltas=delta_list, datetime_col=dt_col)
+                created_cols.extend(delta_created)
+
+            # 4. Lead features
             for col in lead_cols:
                 df_h, lead_col = create_lead_features(
                     df_h, col, horizon, agg=lead_agg_key, datetime_col=dt_col)
                 created_cols.append(lead_col)
 
-            # 4. Rolling features
+            # 5. Rolling features
             try:
                 rolling_wins = [int(x.strip()) for x in rolling_windows_txt.split(",")
                                 if x.strip()]
@@ -1897,14 +2092,19 @@ def _afficher_transformation_ts(df: pd.DataFrame):
                     df_h, col, windows=rolling_wins, datetime_col=dt_col)
                 created_cols.extend(r_created)
 
-            # 5. Supprimer les lignes avec NaN (début/fin de série, lags, rolling)
+            # 6. Saisonnalité sin/cos
+            if add_seasonal and has_dt:
+                df_h, seasonal_created = create_seasonal_encoding(
+                    df_h, dt_col)
+                created_cols.extend(seasonal_created)
+
+            # 7. Supprimer les lignes avec NaN (début/fin de série, lags, rolling)
             n_before = len(df_h)
-            # Nettoyer toutes les colonnes numériques (lags, rolling, target, features)
             numeric_cols_h = df_h.select_dtypes(include="number").columns.tolist()
             df_h = df_h.dropna(subset=numeric_cols_h).reset_index(drop=True)
             n_lost = n_before - len(df_h)
 
-            # 6. Définir les features et basculer en régression
+            # 8. Définir les features et basculer en régression
             feature_candidates = [c for c in df_h.columns
                                   if c != target_horizon_col
                                   and c != dt_col
@@ -1930,10 +2130,13 @@ def _afficher_transformation_ts(df: pd.DataFrame):
                     "horizon": horizon,
                     "lag_cols": lag_cols,
                     "lags": lags_list,
+                    "delta_col": delta_col,
+                    "deltas": delta_list,
                     "lead_cols": lead_cols,
                     "lead_agg": lead_agg_key,
                     "rolling_cols": rolling_cols,
                     "rolling_windows": rolling_wins,
+                    "seasonal_encoding": add_seasonal,
                     "target_col": target_horizon_col,
                     "n_features": len(feature_candidates),
                 }
@@ -1950,6 +2153,45 @@ def _afficher_transformation_ts(df: pd.DataFrame):
                 f"{len(feature_candidates)} variables explicatives · "
                 f"{n_lost} lignes perdues (bords) · "
                 f"**Mode : Régression supervisée**")
+
+            # Résumé des features créées pour compréhension
+            with st.expander("Détail des features créées", expanded=True):
+                cat_lags = [c for c in created_cols if "_lag" in c]
+                cat_deltas = [c for c in created_cols if "_delta" in c]
+                cat_leads = [c for c in created_cols if "_lead" in c]
+                cat_rolling = [c for c in created_cols
+                               if "_rmean" in c or "_rstd" in c]
+                cat_seasonal = [c for c in created_cols
+                                if c in ("saison_sin", "saison_cos")]
+                cat_target = [c for c in created_cols if "_t+" in c]
+
+                summary_parts = []
+                if cat_target:
+                    summary_parts.append(
+                        f"- **Cible** : `{', '.join(cat_target)}` "
+                        f"(ce qu'on cherche à prédire)")
+                if cat_lags:
+                    summary_parts.append(
+                        f"- **Lags** ({len(cat_lags)}) : valeurs passées "
+                        f"→ capturent l'inertie")
+                if cat_deltas:
+                    summary_parts.append(
+                        f"- **Deltas** ({len(cat_deltas)}) : variations récentes "
+                        f"→ capturent la tendance montée/descente")
+                if cat_leads:
+                    summary_parts.append(
+                        f"- **Leads** ({len(cat_leads)}) : prévisions futures "
+                        f"→ injectent les données météo à venir")
+                if cat_rolling:
+                    summary_parts.append(
+                        f"- **Rolling** ({len(cat_rolling)}) : moyennes/écarts "
+                        f"glissants → capturent la tendance de fond")
+                if cat_seasonal:
+                    summary_parts.append(
+                        f"- **Saisonnalité** ({len(cat_seasonal)}) : sin/cos "
+                        f"→ encodent le cycle annuel")
+
+                st.markdown("\n".join(summary_parts))
 
             # Auto-avancer vers l'étape 7
             rapport = st.session_state.get("rapport", {})
@@ -1972,7 +2214,7 @@ def _afficher_transformation_ts(df: pd.DataFrame):
     # ═══════════════════════════════════════
     # 6e. Validation
     # ═══════════════════════════════════════
-    with tab_valid:
+    if sub_step == 4:
         st.subheader("Valider les transformations TS")
 
         st.markdown(f"**Données actuelles :** {len(df)} lignes × {len(df.columns)} colonnes")
@@ -2074,14 +2316,13 @@ Les modèles de ML ne comprennent que les **nombres**. Il faut donc :
     encoding_done = st.session_state.get("encoding_done", False)
     scaling_done = st.session_state.get("scaling_done", False)
 
-    tab_a, tab_b, tab_c = st.tabs([
-        "🏷️ 6a. Encoding", "📐 6b. Scaling", "🔧 6c. Feature Engineering"
-    ])
+    # Navigation par sous-étape (piloté par la sidebar)
+    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 6a. Encoding catégoriel
     # ═══════════════════════════════════════
-    with tab_a:
+    if sub_step == 0:
         st.subheader("Convertir le texte en chiffres")
         cat_cols = get_categorical_columns(df)
 
@@ -2158,9 +2399,9 @@ Les modèles de ML ne comprennent que les **nombres**. Il faut donc :
     # ═══════════════════════════════════════
     # 6b. Scaling
     # ═══════════════════════════════════════
-    with tab_b:
+    if sub_step == 1:
         if not encoding_done:
-            st.info("🔒 **Verrouillé** — Terminez d'abord l'encodage (6a).")
+            st.info("🔒 **Verrouillé** — Terminez d'abord l'encodage.")
             return
 
         st.subheader("Mise à l'échelle")
@@ -2218,7 +2459,7 @@ Les modèles de ML ne comprennent que les **nombres**. Il faut donc :
     # ═══════════════════════════════════════
     # 6c. Feature Engineering (optionnel)
     # ═══════════════════════════════════════
-    with tab_c:
+    if sub_step == 2:
         st.subheader("Créer / modifier des colonnes")
         st.caption("Cette sous-étape est optionnelle.")
 

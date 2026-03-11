@@ -115,23 +115,55 @@ def _grille_distributions(df: pd.DataFrame):
 
 
 def _heatmap_manquantes(df: pd.DataFrame):
-    """Carte thermique des valeurs manquantes."""
-    na_matrix = df.isna().astype(int)
+    """Barres horizontales des valeurs manquantes (bleu = présent, rouge = trou)."""
+    na_matrix = df.isna()
     if na_matrix.sum().sum() == 0:
         st.success("✅ Aucune valeur manquante !")
         return
 
-    fig, ax = plt.subplots(figsize=(min(12, len(df.columns) * 0.5), 4))
+    # Ne garder que les colonnes qui ont au moins 1 NaN
+    cols_with_na = [c for c in df.columns if na_matrix[c].any()]
+
+    # Graphique en barres horizontales : bleu = données, rouge = trous
+    n_cols = len(cols_with_na)
+    fig_h = max(1.5, n_cols * 0.4 + 0.8)
+    fig, ax = plt.subplots(figsize=(10, fig_h))
     fig.set_facecolor("#F8F9FC")
 
-    # Afficher un échantillon si trop de lignes
-    sample = na_matrix if len(na_matrix) <= 200 else na_matrix.sample(200, random_state=42).sort_index()
+    n_rows = len(df)
+    for i, col in enumerate(cols_with_na):
+        present = ~na_matrix[col]
+        y = n_cols - 1 - i
 
-    sns.heatmap(sample.T, cmap=["#FFFFFF", "#DC2626"], cbar_kws={"label": "Manquant"},
-                ax=ax, yticklabels=True, xticklabels=False)
-    ax.set_title("Carte des valeurs manquantes (rouge = manquant)", fontsize=10, fontweight="bold")
+        # Dessiner des segments contigus
+        prev_state = None
+        seg_start = 0
+        for j in range(n_rows):
+            state = present.iloc[j]
+            if state != prev_state and prev_state is not None:
+                color = "#4F5BD5" if prev_state else "#DC2626"
+                alpha = 0.7 if prev_state else 0.9
+                ax.barh(y, j - seg_start, left=seg_start,
+                        height=0.7, color=color, alpha=alpha,
+                        edgecolor="none")
+                seg_start = j
+            prev_state = state
+        # Dernier segment
+        if prev_state is not None:
+            color = "#4F5BD5" if prev_state else "#DC2626"
+            alpha = 0.7 if prev_state else 0.9
+            ax.barh(y, n_rows - seg_start, left=seg_start,
+                    height=0.7, color=color, alpha=alpha,
+                    edgecolor="none")
+
+    ax.set_yticks(range(n_cols))
+    ax.set_yticklabels(reversed(cols_with_na), fontsize=8)
+    ax.set_xlim(0, n_rows)
+    ax.set_xlabel(f"Lignes (total : {n_rows})", fontsize=8)
+    ax.set_title("Valeurs manquantes par colonne (rouge = trou, bleu = donnée)",
+                 fontsize=10, fontweight="bold")
     ax.tick_params(labelsize=7)
-    plt.tight_layout()
+    fig.tight_layout()
     st.pyplot(fig)
     plt.close()
 
@@ -206,13 +238,20 @@ Cette étape analyse automatiquement :
 > **💡 Les indicateurs rouges et oranges** sont les points à traiter en priorité.
 """)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Distributions", "🕳️ Valeurs manquantes",
-        "🔗 Corrélations", "⚠️ Anomalies", "🎯 Recommandations"
-    ])
-
     problem_type = st.session_state.get("problem_type", "Régression")
     is_ts = problem_type == "Série temporelle"
+
+    if is_ts:
+        tab1, tab2, tab3, tab4, tab_ts, tab5 = st.tabs([
+            "📊 Distributions", "🕳️ Valeurs manquantes",
+            "🔗 Corrélations", "⚠️ Anomalies",
+            "📈 Série temporelle", "🎯 Recommandations"
+        ])
+    else:
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📊 Distributions", "🕳️ Valeurs manquantes",
+            "🔗 Corrélations", "⚠️ Anomalies", "🎯 Recommandations"
+        ])
 
     # ── Tab 1 : Distributions de TOUTES les colonnes ──
     with tab1:
@@ -353,46 +392,43 @@ Cette étape analyse automatiquement :
             for issue in quality["issues"]:
                 st.write(f"  → {issue}")
 
-    # ── Section Série temporelle (conditionnelle) ──
+    # ── Tab Série temporelle (intégré dans les onglets) ──
     if is_ts:
-        st.divider()
-        st.subheader("📈 Diagnostic Série temporelle")
+        with tab_ts:
+            st.subheader("Diagnostic Série temporelle")
 
-        dt_col = detect_datetime_column(df)
-        if dt_col is None:
-            st.warning("⚠️ Aucune colonne datetime détectée. "
-                       "Vérifiez que vos données contiennent une colonne de dates.")
-        else:
-            num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-            if not num_cols:
-                st.warning("⚠️ Aucune colonne numérique pour la série temporelle.")
+            dt_col = detect_datetime_column(df)
+            if dt_col is None:
+                st.warning("⚠️ Aucune colonne datetime détectée. "
+                           "Vérifiez que vos données contiennent une colonne de dates.")
             else:
-                ts_value_col = st.selectbox(
-                    "Colonne de valeurs à analyser", num_cols,
-                    key="ts_diag_value_col")
+                num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                if not num_cols:
+                    st.warning("⚠️ Aucune colonne numérique pour la série temporelle.")
+                else:
+                    ts_value_col = st.selectbox(
+                        "Colonne de valeurs à analyser", num_cols,
+                        key="ts_diag_value_col")
 
-                try:
-                    ts_series = prepare_timeseries(df, dt_col, ts_value_col)
-                except Exception as e:
-                    st.error(f"❌ Impossible de préparer la série : {e}")
-                    ts_series = None
+                    try:
+                        ts_series = prepare_timeseries(df, dt_col, ts_value_col)
+                    except Exception as e:
+                        st.error(f"❌ Impossible de préparer la série : {e}")
+                        ts_series = None
 
-                if ts_series is not None and len(ts_series) >= 10:
-                    # Résumé automatique
-                    summary = auto_summary(ts_series)
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Points", summary["n_points"])
-                    c2.metric("Fréquence", summary["frequence"])
-                    c3.metric("Moyenne", f"{summary['moyenne']:.2f}")
-                    c4.metric("Stationnaire",
-                              "✅ Oui" if summary["stationnaire"] else "❌ Non")
+                    if ts_series is not None and len(ts_series) >= 10:
+                        # Résumé automatique
+                        summary = auto_summary(ts_series)
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Points", summary["n_points"])
+                        c2.metric("Fréquence", summary["frequence"])
+                        c3.metric("Moyenne", f"{summary['moyenne']:.2f}")
+                        c4.metric("Stationnaire",
+                                  "✅ Oui" if summary["stationnaire"] else "❌ Non")
 
-                    ts_tab1, ts_tab2, ts_tab3, ts_tab4 = st.tabs([
-                        "📈 Série", "📊 Décomposition",
-                        "📉 ACF / PACF", "📋 Stationnarité",
-                    ])
-
-                    with ts_tab1:
+                        # Série temporelle
+                        st.markdown("---")
+                        st.markdown("#### Visualisation de la série")
                         fig_plotly = plot_timeseries_interactive(
                             ts_series, title=f"{ts_value_col} au cours du temps")
                         st.plotly_chart(fig_plotly, use_container_width=True)
@@ -407,7 +443,9 @@ Cette étape analyse automatiquement :
                             st.pyplot(fig)
                             plt.close()
 
-                    with ts_tab2:
+                        # Décomposition
+                        st.markdown("---")
+                        st.markdown("#### Décomposition saisonnière")
                         _gd1, _gd2 = st.columns(2)
                         with _gd1:
                             try:
@@ -425,37 +463,68 @@ Cette étape analyse automatiquement :
                             except Exception:
                                 pass
 
-                    with ts_tab3:
+                        # ACF / PACF avec explication pédagogique
+                        st.markdown("---")
+                        st.markdown("#### Autocorrélation (ACF / PACF)")
+                        with st.expander("Qu'est-ce que l'ACF et le PACF ?", expanded=False):
+                            st.markdown(
+                                "**ACF (Auto-Correlation Function)** mesure la "
+                                "**ressemblance** entre la valeur d'aujourd'hui et "
+                                "celle d'il y a N jours.\n\n"
+                                "- Une barre haute au lag 7 = la valeur de chaque jour "
+                                "ressemble beaucoup a celle d'il y a 7 jours "
+                                "(rythme hebdomadaire)\n"
+                                "- Des barres qui descendent lentement = la série a "
+                                "une **tendance** (elle monte ou descend globalement)\n"
+                                "- Des pics réguliers = il y a un **cycle saisonnier**\n\n"
+                                "**PACF (Partial ACF)** est similaire mais élimine les "
+                                "effets indirects. Si le lag 3 est haut en ACF mais bas "
+                                "en PACF, c'est que le lag 3 n'apporte pas d'info "
+                                "supplémentaire par rapport aux lags 1 et 2.\n\n"
+                                "**A quoi ça sert ?** A choisir les bons **lags** "
+                                "pour la prédiction (étape 6) et les paramètres du "
+                                "modèle ARIMA.")
                         fig = plot_acf_pacf(ts_series)
                         st.pyplot(fig)
                         plt.close()
 
                         order = suggest_arima_order(ts_series)
-                        st.info(f"💡 Ordre ARIMA suggéré : **{order}**")
+                        st.info(f"Ordre ARIMA suggéré : **{order}**")
                         st.session_state["ts_suggested_order"] = order
 
-                    with ts_tab4:
+                        # Stationnarité
+                        st.markdown("---")
+                        st.markdown("#### Tests de stationnarité")
+                        with st.expander("Qu'est-ce que la stationnarité ?", expanded=False):
+                            st.markdown(
+                                "Une série est **stationnaire** quand ses propriétés "
+                                "(moyenne, variance) ne changent pas dans le temps. "
+                                "C'est important car beaucoup de modèles supposent "
+                                "que la série est stationnaire.\n\n"
+                                "Si la série **n'est pas stationnaire** (ex: elle monte "
+                                "sur le long terme), on pourra la rendre stationnaire "
+                                "à l'étape transformation (différenciation, log).")
                         stationarity = test_stationarity(ts_series)
                         st.markdown(f"**Conclusion :** {stationarity['conclusion']}")
 
-                        st.markdown("**Test ADF** (H₀ = non stationnaire)")
+                        st.markdown("**Test ADF** (H0 = non stationnaire)")
                         st.write(f"  Statistique : {stationarity['adf_statistic']}, "
                                  f"p-value : {stationarity['adf_pvalue']} → "
                                  f"{'Stationnaire ✅' if stationarity['adf_stationary'] else 'Non stationnaire ❌'}")
 
                         if stationarity["kpss_statistic"] is not None:
-                            st.markdown("**Test KPSS** (H₀ = stationnaire)")
+                            st.markdown("**Test KPSS** (H0 = stationnaire)")
                             st.write(f"  Statistique : {stationarity['kpss_statistic']}, "
                                      f"p-value : {stationarity['kpss_pvalue']} → "
                                      f"{'Stationnaire ✅' if stationarity['kpss_stationary'] else 'Non stationnaire ❌'}")
 
-                    # Sauvegarder en session pour les modules suivants
-                    st.session_state["ts_datetime_col"] = dt_col
-                    st.session_state["ts_value_col"] = ts_value_col
-                    st.session_state["ts_series"] = ts_series
+                        # Sauvegarder en session pour les modules suivants
+                        st.session_state["ts_datetime_col"] = dt_col
+                        st.session_state["ts_value_col"] = ts_value_col
+                        st.session_state["ts_series"] = ts_series
 
-                elif ts_series is not None:
-                    st.warning("⚠️ Pas assez de points (minimum 10) pour l'analyse temporelle.")
+                    elif ts_series is not None:
+                        st.warning("⚠️ Pas assez de points (minimum 10) pour l'analyse temporelle.")
 
     st.session_state["diagnostic_done"] = True
     rapport = st.session_state.get("rapport", {})

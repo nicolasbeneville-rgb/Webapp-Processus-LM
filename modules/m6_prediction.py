@@ -10,6 +10,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import pickle
 
 from config import DEFAULT_CV_FOLDS, OPTIMIZATION_DEFAULT_ITERATIONS
 from src.models import optimize_model, DEFAULT_PARAM_GRIDS

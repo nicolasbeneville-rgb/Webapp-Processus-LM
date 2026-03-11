@@ -349,6 +349,62 @@ def create_horizon_target(df: pd.DataFrame, target_col: str,
     return result, new_col
 
 
+def create_seasonal_encoding(df: pd.DataFrame,
+                              datetime_col: str) -> tuple:
+    """Encode la saisonnalité en sin/cos à partir du jour de l'année.
+
+    Utilise sin(2*pi*doy/365.25) et cos(2*pi*doy/365.25) pour que le modèle
+    comprenne que le 31 décembre est proche du 1er janvier (continuité
+    circulaire), ce qu'un entier day_of_year ne permet pas.
+
+    Args:
+        df: DataFrame source.
+        datetime_col: Colonne datetime.
+
+    Returns:
+        Tuple (DataFrame avec colonnes sin/cos, liste des colonnes créées).
+    """
+    result = df.copy()
+    dt = pd.to_datetime(result[datetime_col], errors="coerce")
+    doy = dt.dt.dayofyear
+
+    result["saison_sin"] = np.sin(2 * np.pi * doy / 365.25)
+    result["saison_cos"] = np.cos(2 * np.pi * doy / 365.25)
+
+    return result, ["saison_sin", "saison_cos"]
+
+
+def create_delta_features(df: pd.DataFrame, col: str,
+                           deltas: list = None,
+                           datetime_col: str = None) -> tuple:
+    """Crée des features de variation (delta) : valeur actuelle - valeur passée.
+
+    Capture la tendance récente (montée/descente) du signal, ce que les lags
+    seuls ne montrent pas directement.
+
+    Args:
+        df: DataFrame trié chronologiquement.
+        col: Colonne numérique source.
+        deltas: Périodes de comparaison (ex: [3, 7] → delta 3j et 7j).
+        datetime_col: Colonne datetime pour tri (optionnel).
+
+    Returns:
+        Tuple (DataFrame avec colonnes delta, liste des colonnes créées).
+    """
+    result = df.copy()
+    if datetime_col and datetime_col in result.columns:
+        result = result.sort_values(datetime_col).reset_index(drop=True)
+
+    deltas = deltas or [3, 7]
+    created = []
+    for d in deltas:
+        new_col = f"{col}_delta{d}"
+        result[new_col] = result[col] - result[col].shift(d)
+        created.append(new_col)
+
+    return result, created
+
+
 def create_lead_features(df: pd.DataFrame, col: str,
                           horizon: int,
                           agg: str = "sum",

@@ -67,22 +67,36 @@ st.markdown("""
 * { -webkit-font-smoothing: antialiased; }
 
 /* ══════════════════════════════════════════
-   SIDEBAR — fond bleu foncé, texte clair
+   SIDEBAR — fond bleu foncé, texte clair, compact
    ══════════════════════════════════════════ */
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #1B2A4A 0%, #162240 100%) !important;
     border-right: none;
 }
+section[data-testid="stSidebar"] > div:first-child {
+    padding-top: 0.3rem !important;
+    padding-bottom: 0.5rem !important;
+}
+section[data-testid="stSidebar"] .block-container,
+section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
+    gap: 0.15rem !important;
+}
+section[data-testid="stSidebar"] .stElementContainer {
+    margin-bottom: 0 !important;
+}
 section[data-testid="stSidebar"] h1 {
     color: #E74C3C !important;
-    font-size: 1.15rem !important;
+    font-size: 1.1rem !important;
     font-weight: 800 !important;
     letter-spacing: -0.01em;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 section[data-testid="stSidebar"] h2,
 section[data-testid="stSidebar"] h3 {
     color: #CBD5E1 !important;
-    font-size: 0.9rem !important;
+    font-size: 0.85rem !important;
+    margin: 0 !important;
 }
 section[data-testid="stSidebar"] p,
 section[data-testid="stSidebar"] span,
@@ -91,17 +105,21 @@ section[data-testid="stSidebar"] .stMarkdown,
 section[data-testid="stSidebar"] small {
     color: #E2E8F0 !important;
 }
+section[data-testid="stSidebar"] .stRadio > div {
+    gap: 0 !important;
+}
 section[data-testid="stSidebar"] .stRadio label {
     transition: background var(--transition);
-    border-radius: 6px;
-    padding: 1px 4px;
+    border-radius: 4px;
+    padding: 1px 4px !important;
+    min-height: unset !important;
 }
 section[data-testid="stSidebar"] .stRadio label:hover {
     background: rgba(255,255,255,0.08);
 }
 section[data-testid="stSidebar"] .stRadio label span {
     color: #E2E8F0 !important;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 450;
 }
 section[data-testid="stSidebar"] .stRadio [aria-checked="true"] span {
@@ -117,17 +135,25 @@ section[data-testid="stSidebar"] .stProgress > div {
     background: rgba(255,255,255,0.12) !important;
     height: 6px !important;
 }
+section[data-testid="stSidebar"] .stProgress {
+    margin: 0 !important;
+    padding: 0 !important;
+}
 section[data-testid="stSidebar"] .stProgress p {
     display: none !important;
 }
 section[data-testid="stSidebar"] hr {
     border-color: rgba(255,255,255,0.1) !important;
     background: rgba(255,255,255,0.1) !important;
+    margin: 2px 0 !important;
 }
 section[data-testid="stSidebar"] .stButton > button {
     background: rgba(255,255,255,0.1) !important;
     color: #E2E8F0 !important;
     border: 1px solid rgba(255,255,255,0.15) !important;
+    padding: 2px 8px !important;
+    min-height: unset !important;
+    font-size: 0.8rem !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
     background: rgba(255,255,255,0.18) !important;
@@ -137,13 +163,22 @@ section[data-testid="stSidebar"] .stDownloadButton > button {
     background: rgba(255,255,255,0.1) !important;
     color: #E2E8F0 !important;
     border: 1px solid rgba(255,255,255,0.15) !important;
+    padding: 2px 8px !important;
+    min-height: unset !important;
+    font-size: 0.8rem !important;
 }
 section[data-testid="stSidebar"] details {
     border-color: rgba(255,255,255,0.12) !important;
     background: rgba(255,255,255,0.04) !important;
+    margin: 0 !important;
+}
+section[data-testid="stSidebar"] summary {
+    padding: 4px 8px !important;
+    min-height: unset !important;
 }
 section[data-testid="stSidebar"] summary span {
     color: #CBD5E1 !important;
+    font-size: 0.78rem !important;
 }
 section[data-testid="stSidebar"] code {
     background: rgba(255,255,255,0.08) !important;
@@ -152,21 +187,22 @@ section[data-testid="stSidebar"] code {
 /* ML Studio home button — styled as title */
 section[data-testid="stSidebar"] .stButton > button[kind="primary"],
 section[data-testid="stSidebar"] .stButton > button[kind="secondary"] {
-    font-size: 1.15rem !important;
+    font-size: 1.1rem !important;
     font-weight: 800 !important;
     letter-spacing: -0.01em;
 }
-section[data-testid="stSidebar"] button[key="home_btn"],
 section[data-testid="stSidebar"] .stButton:first-child > button {
     background: transparent !important;
     border: none !important;
     color: #E74C3C !important;
-    font-size: 1.15rem !important;
+    font-size: 1.1rem !important;
     font-weight: 800 !important;
     box-shadow: none !important;
-    padding: 8px 0 !important;
+    padding: 2px 0 !important;
     text-align: left !important;
     cursor: pointer;
+    margin: 0 !important;
+    min-height: unset !important;
 }
 section[data-testid="stSidebar"] .stButton:first-child > button:hover {
     color: #FF6B6B !important;
@@ -174,15 +210,15 @@ section[data-testid="stSidebar"] .stButton:first-child > button:hover {
 }
 
 /* ══════════════════════════════════════════
-   SIDEBAR — sous-étapes (2e radio)
+   SIDEBAR — sous-étapes (2e radio) compact
    ══════════════════════════════════════════ */
 section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio label {
-    padding-left: 12px;
-    margin-left: 8px;
+    padding-left: 10px !important;
+    margin-left: 6px;
     border-left: 2px solid rgba(255,255,255,0.15);
 }
 section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio label span {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 400;
 }
 section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio [aria-checked="true"] {

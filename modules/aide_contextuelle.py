@@ -294,6 +294,17 @@ def afficher_aide(etape: int):
     st.sidebar.warning(f"⚠️ **Piège :** {aide['piege']}")
 
 
+def afficher_aide_etape(etape: int):
+    """Affiche l'aide contextuelle en haut de la page principale (expander)."""
+    aide = AIDE.get(etape)
+    if not aide:
+        return
+    with st.expander("💡 Pourquoi cette étape ?", expanded=False):
+        st.markdown(f"**Ce que vous faites ici :** {aide['quoi']}")
+        st.markdown(f"**Pourquoi c'est important :** {aide['pourquoi']}")
+        st.warning(f"⚠️ **Piège courant :** {aide['piege']}")
+
+
 def afficher_glossaire():
     """Affiche le contenu du glossaire (appelé depuis un expander dans app.py)."""
     for terme, explication in GLOSSAIRE.items():

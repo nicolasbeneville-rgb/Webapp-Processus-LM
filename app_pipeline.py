@@ -20,7 +20,7 @@ from modules.m3_nettoyage import afficher_nettoyage, afficher_transformation
 from modules.m4_entrainement import afficher_entrainement
 from modules.m5_evaluation import afficher_evaluation
 from modules.m6_prediction import afficher_optimisation_prediction
-from modules.aide_contextuelle import afficher_aide, afficher_glossaire
+from modules.aide_contextuelle import afficher_aide, afficher_aide_etape, afficher_glossaire
 from utils.projet_manager import exporter_projet_zip, exporter_projet_portable, importer_projet_portable
 
 import os
@@ -179,7 +179,7 @@ _on_accueil = (not _projet_actif) and (_accueil_action is None)
 step_idx = 0  # valeur par défaut
 
 with st.sidebar:
-    # ── 1. Titre ML Studio = retour accueil (tout en haut) ──
+    # ── Titre ML Studio (collé en haut, cliquable pour retour accueil) ──
     if st.button("⚗️ ML STUDIO", use_container_width=True, key="home_btn",
                  type="primary" if _on_accueil else "secondary"):
         keys_to_keep = set()
@@ -189,36 +189,29 @@ with st.sidebar:
         st.rerun()
 
     if _projet_actif:
-        # ── 2. Barre de progression simple ──
+        # ── Barre de progression + sauvegarde sur une ligne ──
         max_step = _etape_max_accessible()
         progress_pct = max_step / max(len(STEPS) - 1, 1)
         st.progress(progress_pct)
-        st.caption(f"Progression : **{max_step}/{len(STEPS) - 1}**")
 
-        # ── 3. Sauvegarde (accessible immédiatement) ──
         rapport = st.session_state.get("rapport")
         if rapport:
-            project_bytes = exporter_projet_portable(st.session_state)
-            nom_safe = rapport.get("nom", "projet").replace(" ", "_").lower()
-            st.download_button(
-                "💾 Sauvegarder mon projet",
-                project_bytes,
-                f"{nom_safe}.mlproject",
-                "application/octet-stream",
-                key="dl_mlproject",
-                type="primary",
-            )
-            if rapport.get("chemin") and not _IS_CLOUD:
-                zip_bytes = exporter_projet_zip(rapport["chemin"])
-                st.download_button("📦 Exporter en ZIP",
-                                   zip_bytes,
-                                   f"{rapport.get('dossier', 'projet')}.zip",
-                                   "application/zip",
-                                   key="dl_zip")
+            _c1, _c2 = st.columns([1, 1])
+            with _c1:
+                st.caption(f"**{max_step}/{len(STEPS) - 1}**")
+            with _c2:
+                project_bytes = exporter_projet_portable(st.session_state)
+                nom_safe = rapport.get("nom", "projet").replace(" ", "_").lower()
+                st.download_button(
+                    "💾", project_bytes,
+                    f"{nom_safe}.mlproject",
+                    "application/octet-stream",
+                    key="dl_mlproject",
+                )
+        else:
+            st.caption(f"**{max_step}/{len(STEPS) - 1}**")
 
-        st.divider()
-
-        # ── 4. Navigation étapes ──
+        # ── Navigation étapes ──
         step_labels = []
         for i, label in enumerate(STEPS):
             if i <= max_step:
@@ -231,7 +224,6 @@ with st.sidebar:
             default_idx = pending
             st.session_state.pop("nav_step", None)
         elif "nav_step" in st.session_state:
-            # Garder l'étape actuelle (ne pas sauter à max_step)
             current_choice = st.session_state["nav_step"]
             if current_choice in step_labels:
                 default_idx = step_labels.index(current_choice)
@@ -247,9 +239,9 @@ with st.sidebar:
 
         if step_idx > max_step:
             step_idx = max_step
-            st.warning(f"🔒 Étape verrouillée. Complétez d'abord l'étape {max_step}.")
+            st.warning(f"🔒 Complétez d'abord l'étape {max_step}.")
 
-        # ── 5. Sous-étapes (si étape 5 ou 6) ──
+        # ── Sous-étapes (si étape 5 ou 6) ──
         _sub_step_labels = None
         problem_type = st.session_state.get("problem_type", "Régression")
         is_ts = problem_type == "Série temporelle" or st.session_state.get("ts_horizon_mode")
@@ -278,7 +270,7 @@ with st.sidebar:
         elif step_idx == 6:
             if is_ts:
                 _sub_step_labels = [
-                    "📊 Analyse & Recommandations",
+                    "📊 Analyse & Recos",
                     "🔧 Transformations",
                     "📐 Scaling",
                     "🎯 Prédiction horizon",
@@ -298,20 +290,19 @@ with st.sidebar:
         else:
             st.session_state.pop("_current_sub_step", None)
 
-        st.divider()
-
-        # ── 6. Aide contextuelle + Glossaire ──
-        afficher_aide(step_idx)
-
-        with st.expander("📖 Glossaire ML"):
-            afficher_glossaire()
-
-        # ── 7. Récap par étape (tout en bas) ──
-        _indicateur_statut()
+        # ── Récap (expander compact en bas) ──
+        with st.expander("📋 Récap du projet", expanded=False):
+            _indicateur_statut()
+            if rapport and rapport.get("chemin") and not _IS_CLOUD:
+                zip_bytes = exporter_projet_zip(rapport["chemin"])
+                st.download_button("📦 Export ZIP",
+                                   zip_bytes,
+                                   f"{rapport.get('dossier', 'projet')}.zip",
+                                   "application/zip",
+                                   key="dl_zip")
 
     else:
-        st.divider()
-        st.caption("Créez ou chargez un projet pour commencer le pipeline ML.")
+        st.caption("Créez ou chargez un projet pour commencer.")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -415,6 +406,8 @@ elif _accueil_action == "nouveau":
 elif _accueil_action == "charger":
     afficher_charger_projet()
 else:
+    # Aide contextuelle en haut de chaque étape
+    afficher_aide_etape(step_idx)
     handler = STEP_FUNCTIONS.get(step_idx)
     if handler:
         handler()

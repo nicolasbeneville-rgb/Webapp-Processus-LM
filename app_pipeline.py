@@ -179,37 +179,12 @@ _on_accueil = (not _projet_actif) and (_accueil_action is None)
 step_idx = 0  # valeur par défaut
 
 with st.sidebar:
-    # ── Titre ML Studio (collé en haut, cliquable pour retour accueil) ──
-    if st.button("⚗️ ML STUDIO", use_container_width=True, key="home_btn",
-                 type="primary" if _on_accueil else "secondary"):
-        keys_to_keep = set()
-        for key in list(st.session_state.keys()):
-            if key not in keys_to_keep:
-                del st.session_state[key]
-        st.rerun()
-
     if _projet_actif:
-        # ── Barre de progression + sauvegarde sur une ligne ──
+        # ── Avancement ──
         max_step = _etape_max_accessible()
         progress_pct = max_step / max(len(STEPS) - 1, 1)
         st.progress(progress_pct)
-
-        rapport = st.session_state.get("rapport")
-        if rapport:
-            _c1, _c2 = st.columns([1, 1])
-            with _c1:
-                st.caption(f"**{max_step}/{len(STEPS) - 1}**")
-            with _c2:
-                project_bytes = exporter_projet_portable(st.session_state)
-                nom_safe = rapport.get("nom", "projet").replace(" ", "_").lower()
-                st.download_button(
-                    "💾", project_bytes,
-                    f"{nom_safe}.mlproject",
-                    "application/octet-stream",
-                    key="dl_mlproject",
-                )
-        else:
-            st.caption(f"**{max_step}/{len(STEPS) - 1}**")
+        st.caption(f"Avancement **{max_step}/{len(STEPS) - 1}**")
 
         # ── Navigation étapes ──
         step_labels = []
@@ -289,6 +264,19 @@ with st.sidebar:
             st.session_state["_current_sub_step"] = _sub_step_labels.index(sub_choice)
         else:
             st.session_state.pop("_current_sub_step", None)
+
+        # ── Enregistrer le projet ──
+        rapport = st.session_state.get("rapport")
+        if rapport:
+            project_bytes = exporter_projet_portable(st.session_state)
+            nom_safe = rapport.get("nom", "projet").replace(" ", "_").lower()
+            st.download_button(
+                "💾 Enregistrer le projet", project_bytes,
+                f"{nom_safe}.mlproject",
+                "application/octet-stream",
+                key="dl_mlproject",
+                use_container_width=True,
+            )
 
         # ── Récap (expander compact en bas) ──
         with st.expander("📋 Récap du projet", expanded=False):
@@ -407,7 +395,9 @@ elif _accueil_action == "charger":
     afficher_charger_projet()
 else:
     # Aide contextuelle en haut de chaque étape
-    afficher_aide_etape(step_idx)
+    # (étapes 1 et 3 ont déjà leur propre expander détaillé)
+    if step_idx not in (1, 3):
+        afficher_aide_etape(step_idx)
     handler = STEP_FUNCTIONS.get(step_idx)
     if handler:
         handler()

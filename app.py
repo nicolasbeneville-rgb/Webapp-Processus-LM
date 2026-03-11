@@ -18,6 +18,13 @@ from config import APP_TITLE, APP_ICON, APP_LAYOUT
 # ═══════════════════════════════════════════════════════════
 st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout=APP_LAYOUT)
 
+# ── Titre ML Studio tout en haut de la sidebar ──
+st.sidebar.markdown(
+    '<p style="margin:0;padding:4px 0 2px;font-size:1.1rem;font-weight:800;'
+    'color:#E74C3C;letter-spacing:-0.01em;">⚗️ ML STUDIO</p>',
+    unsafe_allow_html=True,
+)
+
 # ── Navigation multi-pages avec labels personnalisés ──
 _page_main = st.Page("app_pipeline.py", title="Créer un Modèle", icon="⚗️", default=True)
 _page_pred = st.Page("app_prediction.py", title="Faire une Prédiction", icon="🔮")
@@ -184,29 +191,9 @@ section[data-testid="stSidebar"] code {
     background: rgba(255,255,255,0.08) !important;
     color: #E2E8F0 !important;
 }
-/* ML Studio home button — styled as title */
-section[data-testid="stSidebar"] .stButton > button[kind="primary"],
-section[data-testid="stSidebar"] .stButton > button[kind="secondary"] {
-    font-size: 1.1rem !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.01em;
-}
-section[data-testid="stSidebar"] .stButton:first-child > button {
-    background: transparent !important;
-    border: none !important;
-    color: #E74C3C !important;
-    font-size: 1.1rem !important;
-    font-weight: 800 !important;
-    box-shadow: none !important;
-    padding: 2px 0 !important;
-    text-align: left !important;
-    cursor: pointer;
-    margin: 0 !important;
-    min-height: unset !important;
-}
-section[data-testid="stSidebar"] .stButton:first-child > button:hover {
-    color: #FF6B6B !important;
-    background: transparent !important;
+/* Sidebar save button compact */
+section[data-testid="stSidebar"] .stDownloadButton {
+    margin-top: 4px !important;
 }
 
 /* ══════════════════════════════════════════

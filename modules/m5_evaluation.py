@@ -267,8 +267,6 @@ def _qq_plot_residuals(y_test, y_pred):
 
 def afficher_evaluation():
     """Étape 8 — Évaluation détaillée du modèle."""
-    st.caption("ÉTAPE 8")
-
     best = st.session_state.get("meilleur_modele")
     if not best or not st.session_state.get("entrainement_done"):
         st.info("🔒 **Verrouillé** — Entraînez d'abord un modèle (étape 7).")

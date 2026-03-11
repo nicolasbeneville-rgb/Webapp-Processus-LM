@@ -425,22 +425,7 @@ def afficher_demarrage():
 
 def afficher_typage():
     """Étape 1 — Typage et conversion des colonnes."""
-    st.caption("ÉTAPE 1")
-
-    with st.expander("🎓 Pourquoi cette étape ?", expanded=False):
-        st.markdown("""
-L'ordinateur doit savoir si chaque colonne contient des **nombres**, du **texte**,
-des **dates** ou des **catégories**.
-
-| Ce que vous voyez | Ce que l'ordi comprend | Problème si mal typé |
-|---|---|---|
-| `1 200 €` | Texte | Impossible de calculer une moyenne |
-| `75001` | Nombre | Le code postal est une catégorie, pas un nombre ! |
-| `12/03/2024` | Texte | Ne peut pas trier par date |
-
-> **💡 L'app détecte automatiquement les types.** Vérifiez simplement que les suggestions
-> sont correctes et corrigez manuellement si nécessaire.
-""")
+    # ÉTAPE X et aide contextuelle sont gérés par app_pipeline.py
 
     dataframes = st.session_state.get("raw_dataframes", {})
     if not dataframes:
@@ -560,8 +545,6 @@ des **dates** ou des **catégories**.
 
 def afficher_consolidation():
     """Étape 2 — Consolidation / jointure de fichiers."""
-    st.caption("ÉTAPE 2")
-
     dataframes = st.session_state.get("typed_dataframes",
                                        st.session_state.get("raw_dataframes", {}))
     if not dataframes:

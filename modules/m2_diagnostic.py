@@ -213,30 +213,10 @@ def _section_anomalies(df: pd.DataFrame):
 
 def afficher_diagnostic():
     """Étape 3 — Diagnostic complet des données."""
-    st.caption("ÉTAPE 3")
-
     df = st.session_state.get("df_courant")
     if df is None:
         st.warning("⚠️ Complétez d'abord le chargement et la consolidation.")
         return
-
-    with st.expander("🎓 Pourquoi cette étape ?", expanded=False):
-        st.markdown("""
-Avant de construire un modèle, il faut **examiner ses données** comme un médecin
-examine un patient avant de prescrire un traitement.
-
-Cette étape analyse automatiquement :
-
-| Onglet | Ce qu'on cherche | Pourquoi c'est important |
-|---|---|---|
-| 📊 Distributions | Comment chaque colonne est répartie | Détecter les déséquilibres, biais |
-| 🕳️ Manquantes | Les trous dans les données | Des trous = des calculs faussés |
-| 🔗 Corrélations | Les liens entre colonnes | Colonnes redondantes nuisent au modèle |
-| ⚠️ Anomalies | Valeurs aberrantes, quasi-constantes | Données suspectes qui faussent tout |
-| 🎯 Recommandations | Suggestions de traitement | Actions concrètes pour la suite |
-
-> **💡 Les indicateurs rouges et oranges** sont les points à traiter en priorité.
-""")
 
     problem_type = st.session_state.get("problem_type", "Régression")
     is_ts = problem_type == "Série temporelle"
@@ -540,8 +520,6 @@ Cette étape analyse automatiquement :
 
 def afficher_cible_variables():
     """Étape 4 — Choix de la cible et des variables."""
-    st.caption("ÉTAPE 4")
-
     df = st.session_state.get("df_courant")
     if df is None:
         st.warning("⚠️ Complétez d'abord le diagnostic (étape 3).")

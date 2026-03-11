@@ -84,8 +84,6 @@ def _parser_valeurs_grille(text: str, fallback: list) -> list:
 
 def afficher_optimisation_prediction():
     """Étape 9 — Optimisation & Prédiction."""
-    st.caption("ÉTAPE 9")
-
     best = st.session_state.get("meilleur_modele")
     if not best or not st.session_state.get("evaluation_done"):
         st.info("🔒 **Verrouillé** — Validez d'abord l'évaluation (étape 8).")

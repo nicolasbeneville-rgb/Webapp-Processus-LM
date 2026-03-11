@@ -394,10 +394,8 @@ elif _accueil_action == "nouveau":
 elif _accueil_action == "charger":
     afficher_charger_projet()
 else:
-    # Aide contextuelle en haut de chaque étape
-    # (étapes 1 et 3 ont déjà leur propre expander détaillé)
-    if step_idx not in (1, 3):
-        afficher_aide_etape(step_idx)
+    # Aide contextuelle en haut de chaque étape (ÉTAPE X + expander)
+    afficher_aide_etape(step_idx)
     handler = STEP_FUNCTIONS.get(step_idx)
     if handler:
         handler()

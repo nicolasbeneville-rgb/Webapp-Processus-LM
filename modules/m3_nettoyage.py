@@ -996,8 +996,6 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
 
 def afficher_nettoyage():
     """Étape 5 — Nettoyage : valeurs manquantes puis outliers."""
-    st.caption("ÉTAPE 5")
-
     df = st.session_state.get("df_courant")
     if df is None:
         st.warning("⚠️ Complétez d'abord les étapes précédentes.")
@@ -2269,8 +2267,6 @@ def _valider_transformation_ts(df: pd.DataFrame):
 
 def afficher_transformation():
     """Étape 6 — Transformation : encoding → scaling → feature engineering."""
-    st.caption("ÉTAPE 6")
-
     df = st.session_state.get("df_courant")
     if df is None:
         st.warning("⚠️ Données non disponibles.")

@@ -59,8 +59,6 @@ def _sauvegarder_splits(rapport: dict):
 
 def afficher_entrainement():
     """Étape 7 — Modélisation : split, choix modèles, entraînement."""
-    st.caption("ÉTAPE 7")
-
     df = st.session_state.get("df_courant")
     target_col = st.session_state.get("target_col")
     feature_cols = st.session_state.get("feature_cols")
@@ -333,7 +331,7 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
     # ═══════════════════════════════════════
     # 4b. Courbes Réel vs Prédit (top 3 modèles)
     # ═══════════════════════════════════════
-    if problem_type == "Régression":
+    if problem_type in ("Régression",) or st.session_state.get("ts_horizon_mode"):
         # Sélectionner les modèles valides, triés par score
         valid_results = [r for r in results
                          if r.get("test_score") is not None and "test_pred" in r]

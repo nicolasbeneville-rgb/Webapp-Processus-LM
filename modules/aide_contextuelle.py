@@ -295,7 +295,8 @@ def afficher_aide(etape: int):
 
 
 def afficher_aide_etape(etape: int):
-    """Affiche l'aide contextuelle en haut de la page principale (expander)."""
+    """Affiche le numéro d'étape + aide contextuelle en haut de la page principale."""
+    st.caption(f"ÉTAPE {etape}")
     aide = AIDE.get(etape)
     if not aide:
         return

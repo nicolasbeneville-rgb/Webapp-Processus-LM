@@ -21,7 +21,10 @@ from modules.m4_entrainement import afficher_entrainement
 from modules.m5_evaluation import afficher_evaluation
 from modules.m6_prediction import afficher_optimisation_prediction
 from modules.aide_contextuelle import afficher_aide, afficher_aide_etape, afficher_glossaire
-from utils.projet_manager import exporter_projet_zip, exporter_projet_portable, importer_projet_portable
+from utils.projet_manager import (
+    exporter_projet_zip, exporter_projet_portable,
+    importer_projet_portable, sauvegarder_projet_complet,
+)
 
 import os
 _IS_CLOUD = os.path.exists("/mount/src")
@@ -268,15 +271,26 @@ with st.sidebar:
         # ── Enregistrer le projet ──
         rapport = st.session_state.get("rapport")
         if rapport:
-            project_bytes = exporter_projet_portable(st.session_state)
-            nom_safe = rapport.get("nom", "projet").replace(" ", "_").lower()
-            st.download_button(
-                "💾 Enregistrer le projet", project_bytes,
-                f"{nom_safe}.mlproject",
-                "application/octet-stream",
-                key="dl_mlproject",
-                use_container_width=True,
-            )
+            if not _IS_CLOUD and rapport.get("chemin"):
+                # En local : sauvegarde directe dans le dossier projet
+                if st.button("💾 Enregistrer le projet",
+                             use_container_width=True, key="save_local"):
+                    chemin = sauvegarder_projet_complet(st.session_state)
+                    if chemin:
+                        st.success(f"✅ Sauvegardé dans le dossier projet")
+                    else:
+                        st.warning("⚠️ Impossible de sauvegarder localement.")
+            else:
+                # Sur le cloud : download .mlproject portable
+                project_bytes = exporter_projet_portable(st.session_state)
+                nom_safe = rapport.get("nom", "projet").replace(" ", "_").lower()
+                st.download_button(
+                    "💾 Télécharger le projet", project_bytes,
+                    f"{nom_safe}.mlproject",
+                    "application/octet-stream",
+                    key="dl_mlproject",
+                    use_container_width=True,
+                )
 
         # ── Récap (expander compact en bas) ──
         with st.expander("📋 Récap du projet", expanded=False):

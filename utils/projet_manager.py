@@ -246,6 +246,59 @@ def exporter_projet_zip(chemin_projet: str) -> bytes:
     return buf.getvalue()
 
 
+def sauvegarder_projet_complet(session_state) -> str:
+    """Sauvegarde complète de tout l'état du projet dans le dossier local.
+
+    Écrit : rapport.json, données CSV, modèle, scaler, encodeurs, splits.
+    Retourne le chemin du dossier ou '' si pas de chemin.
+    """
+    rapport = session_state.get("rapport", {})
+    chemin = rapport.get("chemin", "")
+    if not chemin:
+        return ""
+
+    os.makedirs(chemin, exist_ok=True)
+
+    # 1. Rapport
+    sauvegarder_rapport(rapport)
+
+    # 2. Données courantes
+    df = session_state.get("df_courant")
+    if df is not None:
+        sauvegarder_csv(rapport, df, "data_cleaned.csv")
+
+    # 3. Modèle
+    best = session_state.get("meilleur_modele", {})
+    if best and best.get("model"):
+        nom_modele = best.get("name", "modele").replace(" ", "_")
+        sauvegarder_modele(rapport, best["model"], f"{nom_modele}.joblib")
+
+    # 4. Scaler
+    scaler = session_state.get("scaler")
+    if scaler is not None:
+        sauvegarder_objet(rapport, scaler, "scaler.pkl")
+
+    # 5. Encodeurs
+    encoders = session_state.get("encoders")
+    if encoders:
+        sauvegarder_objet(rapport, encoders, "encoders.pkl")
+
+    # 6. Splits train/test
+    for key, filename in [("X_train", "X_train.csv"), ("X_test", "X_test.csv")]:
+        data = session_state.get(key)
+        if data is not None:
+            if hasattr(data, "to_csv"):
+                sauvegarder_csv(rapport, data, filename)
+            else:
+                sauvegarder_csv(rapport, pd.DataFrame(data), filename)
+    for key, filename in [("y_train", "y_train.csv"), ("y_test", "y_test.csv")]:
+        data = session_state.get(key)
+        if data is not None:
+            sauvegarder_csv(rapport, pd.DataFrame(data, columns=["target"]), filename)
+
+    return chemin
+
+
 # ═══════════════════════════════════════════════════════════
 # EXPORT / IMPORT PORTABLE (.mlproject)
 # Fonctionne sans accès disque — basé sur session_state.

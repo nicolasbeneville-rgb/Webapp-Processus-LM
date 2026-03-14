@@ -502,156 +502,167 @@ L'app teste automatiquement des centaines de combinaisons et garde la meilleure.
 
 
 def _afficher_export_api(best: dict, model_name: str, problem_type: str):
-    """Onglet Déployer API : export du modèle + guide Cloud Run + code AppScript."""
-    st.subheader("🚀 Déployer le modèle comme API")
-    st.markdown(
-        "Exportez votre modèle pour le rendre accessible depuis **Google Sheets**, "
-        "**AppScript**, ou toute autre application via une API REST."
+    """Onglet Déployer API : export complet avec pipeline de transformation."""
+    from utils.export_api import (
+        build_pipeline_json, export_model_package,
+        generate_appscript, generate_template_csv,
     )
 
+    st.subheader("🚀 Déployer le modèle comme API")
+
     model = best.get("model")
-    feature_cols = st.session_state.get("feature_cols_used",
-                                         st.session_state.get("feature_cols", []))
-    target_col = st.session_state.get("target_col", "cible")
-    scaler = st.session_state.get("scaler")
-    rapport = st.session_state.get("rapport", {})
-    project_name = rapport.get("nom", "mon_projet")
-
-    # Générer un ID propre pour le modèle
-    model_id = project_name.replace(" ", "_").lower()
-    model_id = st.text_input("Identifiant du modèle (sans espaces)",
-                              value=model_id, key="api_model_id",
-                              help="Cet ID sera utilisé dans les appels API")
-
     if not model:
         st.warning("Aucun modèle disponible.")
         return
 
-    # ── Déterminer les types de features ──
-    X_train = st.session_state.get("X_train")
-    feature_types = {}
-    if X_train is not None:
-        if hasattr(X_train, "dtypes"):
-            for col in feature_cols:
-                if col in X_train.columns:
-                    dt = str(X_train[col].dtype)
-                    feature_types[col] = "number" if "float" in dt or "int" in dt else "string"
-        else:
-            for col in feature_cols:
-                feature_types[col] = "number"
+    rapport = st.session_state.get("rapport", {})
+    project_name = rapport.get("nom", "mon_projet")
+    model_id = project_name.replace(" ", "_").lower()
 
-    # ── Construire le package d'export ──
+    st.markdown(
+        "Exportez votre modèle pour l'utiliser depuis **Google Sheets** (AppScript), "
+        "**Python**, ou toute autre application via une API REST.\n\n"
+        "Le package contient **toute la chaîne de transformation** : "
+        "vous envoyez vos données brutes, l'API calcule automatiquement "
+        "les lags, rolling, delta, sin/cos, scaling, etc."
+    )
+
+    # Construire le pipeline pour l'aperçu
+    pipeline = build_pipeline_json(st.session_state)
+
+    # Aperçu de ce qui sera exporté
+    with st.expander("👁️ Aperçu du pipeline exporté", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Colonnes brutes attendues**")
+            for c in pipeline.get("colonnes_brutes", []):
+                st.write(f"  - `{c}`")
+        with col2:
+            st.markdown("**Transformations automatiques**")
+            n_ts = len(pipeline.get("ts_transforms", []))
+            n_fe = len(pipeline.get("fe_operations", []))
+            if n_ts:
+                st.write(f"  - {n_ts} transformations TS (lags, rolling, delta...)")
+            if n_fe:
+                st.write(f"  - {n_fe} opérations de feature engineering")
+            if pipeline.get("scaler_type"):
+                st.write(f"  - Scaling : {pipeline['scaler_type']}")
+            if pipeline.get("log_applied"):
+                st.write(f"  - Log appliqué (inversion automatique)")
+
+        st.markdown(f"**Historique requis** : {pipeline.get('historique_requis', '?')} lignes minimum")
+        st.markdown(f"**Features du modèle** : {len(pipeline.get('feature_cols_model', []))} colonnes")
+
+    # ── 1. Exporter le package ──
     st.divider()
-    st.markdown("### 📦 1. Exporter le modèle")
+    st.markdown("### 📦 1. Exporter le package complet")
 
     if st.button("📦 Générer le package API", type="primary", key="export_api_btn"):
-        try:
-            # Métadonnées
-            metadata = {
-                "project_name": project_name,
-                "model_id": model_id,
-                "model_name": model_name.replace(" (optimisé)", ""),
-                "problem_type": problem_type,
-                "target_name": target_col,
-                "feature_names": feature_cols,
-                "feature_types": feature_types,
-                "test_score": best.get("test_score"),
-                "train_score": best.get("train_score"),
-                "best_params": best.get("best_params"),
-                "created_at": datetime.now().isoformat(),
-            }
+        with st.spinner("Génération du package..."):
+            try:
+                pkg_bytes = export_model_package(st.session_state)
+                st.session_state["_api_package"] = pkg_bytes
+                st.session_state["_api_pipeline"] = pipeline
+                st.success("✅ Package généré !")
+            except Exception as e:
+                st.error(f"❌ Erreur : {e}")
 
-            # Créer un ZIP en mémoire
-            import zipfile
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                # model.joblib
-                model_buf = io.BytesIO()
-                joblib.dump(model, model_buf)
-                zf.writestr(f"{model_id}/model.joblib", model_buf.getvalue())
-
-                # scaler.joblib (si présent)
-                if scaler is not None:
-                    scaler_buf = io.BytesIO()
-                    joblib.dump(scaler, scaler_buf)
-                    zf.writestr(f"{model_id}/scaler.joblib", scaler_buf.getvalue())
-
-                # metadata.json
-                zf.writestr(f"{model_id}/metadata.json",
-                            json.dumps(metadata, indent=2, ensure_ascii=False))
-
-            buf.seek(0)
-            st.session_state["_api_package"] = buf.getvalue()
-            st.session_state["_api_metadata"] = metadata
-            st.success("✅ Package généré !")
-
-        except Exception as e:
-            st.error(f"❌ Erreur : {e}")
-
-    # Bouton de téléchargement
     pkg = st.session_state.get("_api_package")
-    meta = st.session_state.get("_api_metadata")
     if pkg:
         st.download_button(
             "📥 Télécharger le package API",
-            pkg,
-            f"{model_id}_api.zip",
-            "application/zip",
-            key="dl_api_pkg",
+            pkg, f"{model_id}_api.zip",
+            "application/zip", key="dl_api_pkg",
         )
         st.caption(
-            f"Contient : `{model_id}/model.joblib` + `metadata.json`"
-            + (" + `scaler.joblib`" if scaler is not None else "")
+            f"Contenu : `model.joblib` + `pipeline.json` + `scaler.pkl` + "
+            f"`template.csv` + `appscript.js` + `Dockerfile` + `README_DEPLOY.md`"
         )
 
-    # ── Guide de déploiement ──
+        # Sauvegarder aussi dans le dossier projet local
+        chemin = rapport.get("chemin", "")
+        if chemin:
+            import os, zipfile as zf_mod
+            api_dir = os.path.join(chemin, "api_export")
+            os.makedirs(api_dir, exist_ok=True)
+            with zf_mod.ZipFile(io.BytesIO(pkg), "r") as z:
+                z.extractall(api_dir)
+            st.caption(f"Aussi sauvegardé dans : `{api_dir}`")
+
+    # ── 2. Template CSV ──
     st.divider()
-    st.markdown("### ☁️ 2. Déployer sur Google Cloud Run")
+    st.markdown("### 📋 2. Trame de données à remplir")
+    st.markdown(
+        "Téléchargez ce CSV vide avec les bonnes colonnes. "
+        "Remplissez-le avec vos données brutes puis envoyez-le à l'API."
+    )
+
+    template = generate_template_csv(pipeline)
+    st.download_button(
+        "📄 Télécharger le template CSV",
+        template.encode("utf-8"),
+        f"template_{model_id}.csv", "text/csv",
+        key="dl_template",
+    )
+
+    # Montrer la structure
+    import pandas as _pd
+    df_tpl = _pd.read_csv(io.StringIO(template))
+    st.dataframe(df_tpl.head(3), use_container_width=True)
+    st.caption(
+        f"Remplissez au minimum **{pipeline.get('historique_requis', '?')} lignes** "
+        f"pour que l'API puisse calculer les lags et rolling."
+    )
+
+    # ── 3. Guide Cloud Run ──
+    st.divider()
+    st.markdown("### ☁️ 3. Déployer sur Google Cloud Run")
 
     with st.expander("📖 Guide pas à pas", expanded=False):
         st.markdown(f"""
 **Prérequis** : un compte Google Cloud (gratuit : 2M requêtes/mois).
 
-**Étape 1** — Préparez les fichiers :
+**Étape 1** — Dézipper le package téléchargé :
 ```
-mon-api/
-├── api/
-│   ├── main.py          ← (déjà dans le repo ML Studio)
-│   ├── requirements.txt  ← (déjà dans le repo)
-│   ├── __init__.py
-│   └── models/
-│       └── {model_id}/
-│           ├── model.joblib    ← (du ZIP téléchargé)
-│           ├── metadata.json
-│           └── scaler.joblib   (si présent)
-├── Dockerfile            ← (api/Dockerfile du repo)
+ml-studio-api/
+├── api_server.py           ← serveur FastAPI
+├── requirements_api.txt    ← dépendances Python
+├── Dockerfile              ← pour Cloud Run
+└── models/
+    └── {model_id}/
+        ├── model.joblib
+        ├── pipeline.json
+        ├── scaler.pkl
+        └── template.csv
 ```
 
-**Étape 2** — Déployez en une commande :
+**Étape 2** — Tester en local (optionnel) :
 ```bash
-# Installer Google Cloud CLI si pas fait
-# https://cloud.google.com/sdk/docs/install
+pip install -r requirements_api.txt
+python api_server.py
+# Ouvrir http://localhost:8080/docs
+```
 
+**Étape 3** — Déployer :
+```bash
 gcloud auth login
 gcloud config set project VOTRE_PROJET_GCP
 
-# Construire et déployer
 gcloud run deploy ml-studio-api \\
     --source . \\
     --region europe-west1 \\
     --allow-unauthenticated \\
-    --memory 512Mi \\
-    --port 8080
+    --memory 512Mi
 ```
 
-**Étape 3** — Notez l'URL affichée (ex: `https://ml-studio-api-xxxx-ew.a.run.app`)
+**Étape 4** — Notez l'URL (ex: `https://ml-studio-api-xxxx-ew.a.run.app`)
 
-**Ajouter un nouveau modèle** : dézipper le package dans `api/models/` et redéployer.
+**Ajouter un nouveau modèle** : copiez un nouveau dossier dans `models/` et redéployez.
 """)
 
-    # ── Code AppScript ──
+    # ── 4. Code AppScript ──
     st.divider()
-    st.markdown("### 📋 3. Code AppScript pour Google Sheets")
+    st.markdown("### 📋 4. Code AppScript pour Google Sheets")
 
     api_url = st.text_input(
         "URL de votre API Cloud Run",
@@ -660,127 +671,26 @@ gcloud run deploy ml-studio-api \\
         help="Collez ici l'URL fournie par Cloud Run après le déploiement",
     )
 
-    if meta:
-        features_obj = ", ".join(
-            f'"{f}": row[{i}]' for i, f in enumerate(meta.get("feature_names", []))
-        )
-        features_header = ", ".join(
-            f'"{f}"' for f in meta.get("feature_names", [])
-        )
-        n_feats = len(meta.get("feature_names", []))
+    appscript_code = generate_appscript(pipeline, api_url)
+    st.code(appscript_code, language="javascript")
 
-        appscript_code = f'''// ═══════════════════════════════════════════════
-// ML Studio — Prédiction depuis Google Sheets
-// Modèle : {meta.get("project_name", model_id)}
-// ═══════════════════════════════════════════════
+    st.download_button(
+        "📋 Télécharger le code AppScript",
+        appscript_code.encode("utf-8"),
+        f"ml_studio_{model_id}.gs", "text/plain",
+        key="dl_appscript",
+    )
 
-var API_URL = "{api_url}";
-var MODEL_ID = "{model_id}";
-
-/**
- * Prédit une valeur à partir d'une ligne de données.
- * Utilisation dans une cellule :
- *   =PREDICT(A2:{"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[n_feats-1] if n_feats <= 26 else "Z"}2)
- *
- * Colonnes attendues : {", ".join(meta.get("feature_names", []))}
- */
-function PREDICT(range) {{
-  var row = Array.isArray(range[0]) ? range[0] : range;
-  var payload = {{
-    "model": MODEL_ID,
-    "features": {{ {features_obj} }}
-  }};
-  var options = {{
-    "method": "post",
-    "contentType": "application/json",
-    "payload": JSON.stringify(payload),
-    "muteHttpExceptions": true
-  }};
-  var response = UrlFetchApp.fetch(API_URL + "/predict", options);
-  var result = JSON.parse(response.getContentText());
-  if (result.error) throw new Error(result.detail);
-  return result.prediction;
-}}
-
-
-/**
- * Prédit en lot pour une plage de données.
- * Usage : sélectionnez la plage de données, le script remplit la colonne résultat.
- *
- * Menu : ML Studio > Prédire la sélection
- */
-function predictSelection() {{
-  var sheet = SpreadsheetApp.getActiveSheet();
-  var range = sheet.getActiveRange();
-  var data = range.getValues();
-
-  var features = [{features_header}];
-  var rows = data.map(function(row) {{
-    var obj = {{}};
-    for (var i = 0; i < features.length; i++) {{
-      obj[features[i]] = row[i];
-    }}
-    return obj;
-  }});
-
-  var payload = {{
-    "model": MODEL_ID,
-    "data": rows
-  }};
-  var options = {{
-    "method": "post",
-    "contentType": "application/json",
-    "payload": JSON.stringify(payload),
-    "muteHttpExceptions": true
-  }};
-
-  var response = UrlFetchApp.fetch(API_URL + "/predict/batch", options);
-  var result = JSON.parse(response.getContentText());
-
-  // Écrire les résultats dans la colonne suivante
-  var startRow = range.getRow();
-  var startCol = range.getColumn() + range.getNumColumns();
-  sheet.getRange(startRow, startCol).setValue("Prédiction");
-  for (var i = 0; i < result.predictions.length; i++) {{
-    sheet.getRange(startRow + 1 + i, startCol).setValue(result.predictions[i]);
-  }}
-  SpreadsheetApp.getUi().alert(
-    "✅ " + result.count + " prédictions générées !"
-  );
-}}
-
-
-/**
- * Ajoute un menu personnalisé dans Google Sheets.
- */
-function onOpen() {{
-  SpreadsheetApp.getUi()
-    .createMenu("🔮 ML Studio")
-    .addItem("Prédire la sélection", "predictSelection")
-    .addToUi();
-}}
-'''
-        st.code(appscript_code, language="javascript")
-
-        # Bouton copier
-        st.download_button(
-            "📋 Télécharger le code AppScript",
-            appscript_code.encode("utf-8"),
-            f"ml_studio_{model_id}.gs",
-            "text/plain",
-            key="dl_appscript",
-        )
-
-        st.info(
-            "**Comment l'utiliser :**\n"
-            "1. Dans Google Sheets → Extensions → Apps Script\n"
-            "2. Collez le code ci-dessus\n"
-            "3. Sauvegardez et fermez l'éditeur\n"
-            "4. Rechargez la feuille → menu **ML Studio** apparaît\n"
-            "5. Utilisez `=PREDICT(A2:X2)` dans une cellule ou le menu pour prédire en lot"
-        )
-    else:
-        st.caption("⬆️ Générez d'abord le package API pour voir le code AppScript.")
+    st.info(
+        "**Comment l'utiliser :**\n"
+        "1. Dans Google Sheets → Extensions → Apps Script\n"
+        "2. Collez le code ci-dessus\n"
+        "3. Remplacez `YOUR-API-URL` par l'URL Cloud Run\n"
+        "4. Sauvegardez → rechargez la feuille\n"
+        "5. Le menu **⚗️ ML Studio** apparaît dans la barre de menu\n"
+        "6. Remplissez votre tableau avec les données brutes\n"
+        "7. Cliquez sur **ML Studio > Prédire** !"
+    )
 
 
 def _afficher_prediction_ts(best: dict, model_name: str):

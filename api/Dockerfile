@@ -2,22 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Dépendances système
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc && rm -rf /var/lib/apt/lists/*
-
 # Dépendances Python
-COPY api/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements_api.txt .
+RUN pip install --no-cache-dir -r requirements_api.txt
 
-# Code de l'API
-COPY api/ ./api/
+# Serveur API
+COPY api_server.py .
 
-# Dossier des modèles (monté ou copié au déploiement)
-RUN mkdir -p api/models
+# Dossier des modèles (copier vos modèles exportés ici)
+COPY models/ models/
 
 # Port Cloud Run
 ENV PORT=8080
+ENV MODELS_DIR=models
+
 EXPOSE 8080
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "api_server.py"]

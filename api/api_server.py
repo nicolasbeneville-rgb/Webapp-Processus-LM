@@ -259,18 +259,119 @@ def _replay_scaling(df: pd.DataFrame, scaler, scaled_columns: list) -> pd.DataFr
 
 
 def _transform_and_predict(data_rows: list, loaded: dict) -> dict:
-    """Pipeline complet : données brutes → transformation → prédiction."""
+    """Pipeline complet : données brutes → transformation → prédiction.
+
+    Gère 2 cas :
+    1. Données complètes → prédiction directe (régression/classification)
+    2. Historique + prévisions futures (lignes avec cible vide)
+       → prédiction itérative jour par jour (série temporelle)
+    """
     pipeline = loaded["pipeline"]
     model = loaded["model"]
+    horizon = pipeline.get("ts_horizon")
+    target_original = pipeline.get("target_col_original", "")
+    dt_col = pipeline.get("datetime_col", "")
+    lead_cols = pipeline.get("colonnes_prevision", [])
 
     # Créer le DataFrame
     df = pd.DataFrame(data_rows)
 
-    # Convertir les types numériques
+    # Convertir les types numériques (sauf date)
     for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="ignore")
+        if col != dt_col:
+            df[col] = pd.to_numeric(df[col], errors="ignore")
+    if dt_col and dt_col in df.columns:
+        df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
+        df = df.sort_values(dt_col).reset_index(drop=True)
 
-    # 1. Transformations TS (lags, rolling, delta, seasonal)
+    # Détecter les lignes futures (cible vide) vs historiques
+    has_future_rows = False
+    future_indices = []
+    if target_original and target_original in df.columns and horizon and lead_cols:
+        # Lignes où la cible est vide/NaN = lignes futures à prédire
+        target_series = pd.to_numeric(df[target_original], errors="coerce")
+        future_mask = target_series.isna()
+        future_indices = df.index[future_mask].tolist()
+        has_future_rows = len(future_indices) > 0
+
+    # ═══════════════════════════════════════════════════════
+    # Mode itératif : prédiction jour par jour avec prévision météo
+    # ═══════════════════════════════════════════════════════
+    if has_future_rows:
+        predictions = []
+        dates = []
+
+        for idx in future_indices:
+            # Recalculer les features sur tout le DataFrame à chaque itération
+            # (car les lags utilisent les prédictions précédentes)
+            df_work = df.copy()
+
+            # 1. Transformations TS
+            df_work = _replay_ts_transforms(df_work, pipeline)
+
+            # 2. FE classique
+            if pipeline.get("fe_operations"):
+                df_work = _replay_fe_operations(df_work, pipeline["fe_operations"])
+
+            # 3. Encodage
+            if loaded.get("encoders"):
+                df_work = _replay_encoding(df_work, loaded["encoders"])
+
+            # 4. Scaling
+            if loaded.get("scaler"):
+                df_work = _replay_scaling(df_work, loaded["scaler"],
+                                         pipeline.get("scaled_columns", []))
+
+            # 5. Extraire les features pour cette ligne
+            feature_cols = pipeline.get("feature_cols_model", [])
+            missing = [c for c in feature_cols if c not in df_work.columns]
+            if missing:
+                return {"error": f"Colonnes manquantes : {missing}"}
+
+            row_features = df_work.loc[idx, feature_cols]
+
+            # Vérifier que les features sont complètes
+            if row_features.isna().any():
+                nan_cols = [c for c in feature_cols if pd.isna(row_features[c])]
+                # Si c'est juste des NaN de bord (pas assez d'historique), on skip
+                logger.warning(f"Ligne {idx}: features NaN: {nan_cols}")
+                continue
+
+            X_row = pd.DataFrame([row_features], columns=feature_cols)
+
+            # 6. Prédire
+            pred = float(model.predict(X_row)[0])
+
+            # 7. Inverser le log si nécessaire
+            if pipeline.get("log_applied"):
+                pred = float(np.expm1(pred))
+
+            predictions.append(pred)
+            if dt_col and dt_col in df.columns:
+                d = df.loc[idx, dt_col]
+                dates.append(str(d.date()) if hasattr(d, "date") else str(d))
+            else:
+                dates.append(str(idx))
+
+            # 8. Injecter la prédiction dans le DataFrame pour les lags suivants
+            df.loc[idx, target_original] = pred
+
+        return {
+            "predictions": predictions,
+            "dates": dates,
+            "prediction": predictions[-1] if predictions else None,
+            "n_predictions": len(predictions),
+            "horizon": horizon,
+            "model": pipeline.get("nom"),
+            "mode": "iteratif",
+            "features_used": pipeline.get("feature_cols_model", []),
+        }
+
+    # ═══════════════════════════════════════════════════════
+    # Mode standard : prédiction directe
+    # ═══════════════════════════════════════════════════════
+
+    # 1. Transformations TS
     if pipeline.get("ts_transforms"):
         df = _replay_ts_transforms(df, pipeline)
 
@@ -287,14 +388,13 @@ def _transform_and_predict(data_rows: list, loaded: dict) -> dict:
         df = _replay_scaling(df, loaded["scaler"],
                              pipeline.get("scaled_columns", []))
 
-    # 5. Sélectionner les features attendues par le modèle
+    # 5. Sélectionner les features
     feature_cols = pipeline.get("feature_cols_model", [])
     missing = [c for c in feature_cols if c not in df.columns]
     if missing:
         return {"error": f"Colonnes manquantes après transformation : {missing}. "
                 f"Colonnes disponibles : {df.columns.tolist()}"}
 
-    # Supprimer les NaN (bords des lags/rolling)
     df_features = df[feature_cols].copy()
     valid_mask = df_features.notna().all(axis=1)
 
@@ -307,7 +407,7 @@ def _transform_and_predict(data_rows: list, loaded: dict) -> dict:
     # 6. Prédire
     predictions = model.predict(X).tolist()
 
-    # 7. Inverser le log si nécessaire
+    # 7. Inverser le log
     if pipeline.get("log_applied"):
         predictions = [float(np.expm1(p)) for p in predictions]
 
@@ -315,8 +415,9 @@ def _transform_and_predict(data_rows: list, loaded: dict) -> dict:
         "predictions": predictions,
         "prediction": predictions[-1] if predictions else None,
         "n_predictions": len(predictions),
-        "horizon": pipeline.get("ts_horizon"),
+        "horizon": horizon,
         "model": pipeline.get("nom"),
+        "mode": "standard",
         "features_used": feature_cols,
     }
 
@@ -356,7 +457,9 @@ def list_models():
                 "problem_type": p.get("problem_type", ""),
                 "target": p.get("target_col", ""),
                 "colonnes_brutes": p.get("colonnes_brutes", []),
+                "colonnes_prevision": p.get("colonnes_prevision", []),
                 "historique_requis": p.get("historique_requis", 1),
+                "horizon": p.get("ts_horizon"),
                 "date_export": p.get("date_export", ""),
             })
         except Exception as e:
@@ -381,15 +484,20 @@ def predict(request: PredictRequest):
     if request.batch:
         return {
             "predictions": result["predictions"],
+            "dates": result.get("dates"),
             "n_predictions": result["n_predictions"],
             "model": result["model"],
+            "mode": result.get("mode", "standard"),
         }
     else:
         return {
             "prediction": result["prediction"],
+            "predictions": result["predictions"],
+            "dates": result.get("dates"),
             "horizon": result.get("horizon"),
             "model": result["model"],
-            "n_rows_used": result["n_predictions"],
+            "mode": result.get("mode", "standard"),
+            "n_predictions": result["n_predictions"],
         }
 
 

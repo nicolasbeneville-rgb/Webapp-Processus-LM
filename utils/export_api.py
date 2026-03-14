@@ -130,8 +130,11 @@ def build_pipeline_json(session_state: dict) -> dict:
             ts_horizon.get("horizon", 1)
         ) + 2  # marge de sécurité
 
+    # Colonnes de prévision future (lead_cols = variables exogènes à fournir)
+    lead_cols = ts_horizon.get("lead_cols", []) if ts_horizon else []
+
     pipeline = {
-        "format_version": 1,
+        "format_version": 2,
         "nom": rapport.get("nom", "modele"),
         "date_export": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "problem_type": session_state.get("problem_type", ""),
@@ -139,6 +142,7 @@ def build_pipeline_json(session_state: dict) -> dict:
         "target_col_original": session_state.get("ts_value_col", ""),
         "datetime_col": session_state.get("ts_datetime_col", ""),
         "colonnes_brutes": raw_cols,
+        "colonnes_prevision": lead_cols,  # colonnes à fournir pour le futur
         "feature_cols_model": feature_cols_used,
         "ts_horizon": ts_horizon.get("horizon") if ts_horizon else None,
         "ts_transforms": ts_transforms,
@@ -153,10 +157,55 @@ def build_pipeline_json(session_state: dict) -> dict:
 
 
 def generate_template_csv(pipeline: dict) -> str:
-    """Génère un CSV template vide avec les colonnes brutes attendues."""
+    """Génère un CSV template avec section historique + prévision future.
+
+    Si le modèle utilise des lead features (prévisions météo futures),
+    le template inclut des lignes futures avec les colonnes exogènes
+    à remplir et la cible vide.
+    """
     cols = pipeline.get("colonnes_brutes", [])
-    n_rows = max(pipeline.get("historique_requis", 10), 5)
-    df = pd.DataFrame(columns=cols, index=range(n_rows))
+    n_history = max(pipeline.get("historique_requis", 10), 5)
+    horizon = pipeline.get("ts_horizon")
+    lead_cols = pipeline.get("colonnes_prevision", [])
+    target_original = pipeline.get("target_col_original", "")
+    dt_col = pipeline.get("datetime_col", "")
+
+    # Générer des dates exemples
+    from datetime import datetime, timedelta
+    today = datetime.now().date()
+
+    rows = []
+
+    # Lignes historiques (toutes les colonnes remplies avec des exemples)
+    for i in range(n_history):
+        row = {}
+        d = today - timedelta(days=n_history - i)
+        for c in cols:
+            if c == dt_col:
+                row[c] = d.strftime("%Y-%m-%d")
+            elif c == target_original:
+                row[c] = f"<mesure_{c}>"
+            else:
+                row[c] = f"<valeur_{c}>"
+        rows.append(row)
+
+    # Lignes futures (si horizon + lead_cols)
+    if horizon and lead_cols:
+        for i in range(1, horizon + 1):
+            row = {}
+            d = today + timedelta(days=i)
+            for c in cols:
+                if c == dt_col:
+                    row[c] = d.strftime("%Y-%m-%d")
+                elif c in lead_cols:
+                    row[c] = f"<prevision_{c}>"
+                elif c == target_original:
+                    row[c] = ""  # vide = à prédire
+                else:
+                    row[c] = ""  # pas nécessaire pour le futur
+            rows.append(row)
+
+    df = pd.DataFrame(rows)
     return df.to_csv(index=False)
 
 
@@ -167,37 +216,59 @@ def generate_appscript(pipeline: dict, api_url: str = "https://YOUR-API-URL.run.
     n_history = pipeline.get("historique_requis", 14)
     target = pipeline.get("target_col_original") or pipeline.get("target_col", "")
 
+    lead_cols = pipeline.get("colonnes_prevision", [])
+    horizon = pipeline.get("ts_horizon")
+    has_leads = bool(lead_cols and horizon)
+
+    lead_info = ""
+    if has_leads:
+        lead_info = (
+            f"\n * PRÉVISION FUTURE :"
+            f"\n * Pour prédire dans le futur, ajoutez des lignes avec :"
+            f"\n *   - La date future"
+            f"\n *   - Les prévisions pour : {', '.join(lead_cols)}"
+            f"\n *   - La colonne {target} vide (c'est ce que l'API va prédire)"
+            f"\n * L'API prédit jour par jour en utilisant ses propres prédictions"
+            f"\n * comme historique pour les jours suivants."
+        )
+
     code = f'''// ═══════════════════════════════════════════════════════
 // Code AppScript généré par ML Studio
 // Modèle : {pipeline.get("nom", "modele")}
 // Date : {pipeline.get("date_export", "")}
+//
+// COLONNES REQUISES : {", ".join(raw_cols)}
+// HISTORIQUE MINIMUM : {n_history} lignes{f"""
+// COLONNES DE PRÉVISION FUTURE : {", ".join(lead_cols)}""" if has_leads else ""}
 // ═══════════════════════════════════════════════════════
 
 const API_URL = "{api_url}";
 const MODEL_NAME = "{model_name}";
 
 /**
- * Prédit la valeur de {target} à partir des {n_history} dernières lignes.
- *
+ * Prédit la valeur de {target}.
+ *{lead_info}
  * Utilisation :
- *   1. Sélectionnez les {n_history} dernières lignes de données
- *      (colonnes : {", ".join(raw_cols)})
- *   2. Appelez =PREDIRE() depuis une cellule
- *   3. Ou utilisez le menu ML Studio > Prédire
+ *   1. Remplissez le tableau avec les {n_history}+ dernières mesures
+ *{f'   2. Ajoutez les lignes futures avec les prévisions météo ({", ".join(lead_cols)})' if has_leads else '   2. Le modèle prédit la dernière ligne'}
+ *   3. Menu ⚗️ ML Studio > Prédire
  */
 function predire() {{
   const sheet = SpreadsheetApp.getActiveSheet();
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
+  const allRows = data.slice(1);
 
-  // Prendre les {n_history} dernières lignes
-  const lastRows = data.slice(Math.max(1, data.length - {n_history}));
-
-  // Construire le payload
-  const rows = lastRows.map(row => {{
+  // Construire le payload avec TOUTES les lignes (historique + prévisions)
+  const rows = allRows.map(row => {{
     const obj = {{}};
     headers.forEach((h, i) => {{
-      obj[h] = row[i];
+      // Convertir les dates en string ISO
+      if (row[i] instanceof Date) {{
+        obj[h] = row[i].toISOString().split("T")[0];
+      }} else {{
+        obj[h] = (row[i] === "" || row[i] === null) ? null : row[i];
+      }}
     }});
     return obj;
   }});
@@ -218,89 +289,54 @@ function predire() {{
     const response = UrlFetchApp.fetch(API_URL + "/predict", options);
     const result = JSON.parse(response.getContentText());
 
-    if (result.error) {{
-      SpreadsheetApp.getUi().alert("Erreur : " + result.error);
+    if (result.detail) {{
+      SpreadsheetApp.getUi().alert("Erreur : " + result.detail);
       return;
     }}
 
-    // Afficher le résultat
-    const prediction = result.prediction;
-    const ui = SpreadsheetApp.getUi();
-    ui.alert(
-      "Prédiction ML Studio",
-      "{target} prédit : " + prediction.toFixed(4) +
-      (result.horizon ? " (horizon t+" + result.horizon + ")" : ""),
-      ui.ButtonSet.OK
-    );
+    const predictions = result.predictions || [result.prediction];
+    const dates = result.dates || [];
+    const mode = result.mode || "standard";
 
-    // Écrire dans la cellule suivante
-    const lastRow = sheet.getLastRow();
-    const predCol = headers.indexOf("{target}");
-    if (predCol >= 0) {{
-      sheet.getRange(lastRow + 1, predCol + 1).setValue(prediction);
-      sheet.getRange(lastRow + 1, predCol + 1)
-           .setBackground("#E8F5E9")
-           .setNote("Prédit par ML Studio le " + new Date().toLocaleDateString());
+    if (mode === "iteratif" && predictions.length > 1) {{
+      // Mode prévision : écrire les prédictions dans les cellules vides
+      const targetCol = headers.indexOf("{target}");
+      if (targetCol >= 0) {{
+        let written = 0;
+        for (let i = 0; i < allRows.length; i++) {{
+          const val = allRows[i][targetCol];
+          if (val === "" || val === null || val === undefined) {{
+            if (written < predictions.length) {{
+              const cell = sheet.getRange(i + 2, targetCol + 1);
+              cell.setValue(Math.round(predictions[written] * 10000) / 10000);
+              cell.setBackground("#E8F5E9");
+              cell.setFontStyle("italic");
+              cell.setNote("Prédit par ML Studio le " +
+                           new Date().toLocaleDateString());
+              written++;
+            }}
+          }}
+        }}
+        SpreadsheetApp.getUi().alert(
+          "Prédiction ML Studio",
+          written + " prédictions écrites dans la colonne {target} !\\n" +
+          "Mode : itératif (jour par jour)",
+          SpreadsheetApp.getUi().ButtonSet.OK
+        );
+      }}
+    }} else {{
+      // Mode simple : afficher la dernière prédiction
+      const prediction = predictions[predictions.length - 1];
+      SpreadsheetApp.getUi().alert(
+        "Prédiction ML Studio",
+        "{target} prédit : " + prediction.toFixed(4) +
+        (result.horizon ? " (horizon t+" + result.horizon + ")" : ""),
+        SpreadsheetApp.getUi().ButtonSet.OK
+      );
     }}
 
-    return prediction;
   }} catch (e) {{
     SpreadsheetApp.getUi().alert("Erreur de connexion : " + e.message);
-  }}
-}}
-
-
-/**
- * Prédit pour plusieurs lignes (batch).
- * Sélectionnez la plage de données puis Menu > ML Studio > Prédiction batch.
- */
-function predireBatch() {{
-  const sheet = SpreadsheetApp.getActiveSheet();
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const allRows = data.slice(1);
-
-  const rows = allRows.map(row => {{
-    const obj = {{}};
-    headers.forEach((h, i) => {{ obj[h] = row[i]; }});
-    return obj;
-  }});
-
-  const payload = {{
-    "model": MODEL_NAME,
-    "data": rows,
-    "batch": true
-  }};
-
-  const options = {{
-    "method": "post",
-    "contentType": "application/json",
-    "payload": JSON.stringify(payload),
-    "muteHttpExceptions": true
-  }};
-
-  try {{
-    const response = UrlFetchApp.fetch(API_URL + "/predict", options);
-    const result = JSON.parse(response.getContentText());
-
-    if (result.error) {{
-      SpreadsheetApp.getUi().alert("Erreur : " + result.error);
-      return;
-    }}
-
-    // Écrire les prédictions dans une nouvelle colonne
-    const predictions = result.predictions;
-    const newCol = headers.length + 1;
-    sheet.getRange(1, newCol).setValue("Prédiction ML");
-    predictions.forEach((pred, i) => {{
-      sheet.getRange(i + 2, newCol).setValue(pred);
-    }});
-
-    sheet.getRange(2, newCol, predictions.length, 1).setBackground("#E8F5E9");
-    SpreadsheetApp.getUi().alert(predictions.length + " prédictions écrites !");
-
-  }} catch (e) {{
-    SpreadsheetApp.getUi().alert("Erreur : " + e.message);
   }}
 }}
 
@@ -315,7 +351,11 @@ function listerModeles() {{
 
     let msg = "Modèles disponibles :\\n\\n";
     models.forEach(m => {{
-      msg += "• " + m.nom + " (type: " + m.problem_type + ")\\n";
+      msg += "• " + m.nom + " (" + m.problem_type + ")";
+      if (m.colonnes_prevision && m.colonnes_prevision.length > 0) {{
+        msg += "\\n  Prévisions requises : " + m.colonnes_prevision.join(", ");
+      }}
+      msg += "\\n";
     }});
 
     SpreadsheetApp.getUi().alert("ML Studio - Modèles", msg,
@@ -332,8 +372,7 @@ function listerModeles() {{
 function onOpen() {{
   SpreadsheetApp.getUi()
     .createMenu("⚗️ ML Studio")
-    .addItem("🔮 Prédire (dernières lignes)", "predire")
-    .addItem("📊 Prédiction batch", "predireBatch")
+    .addItem("🔮 Prédire", "predire")
     .addSeparator()
     .addItem("📋 Lister les modèles", "listerModeles")
     .addToUi();

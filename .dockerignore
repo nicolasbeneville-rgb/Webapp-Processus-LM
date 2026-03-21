@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.git/
+.gitignore
+.claude/
+.vscode/
+.idea/
+env/
+venv/
+.venv/
+data/saves/
+projets/
+app_old.py
+*.pkl
+Thumbs.db
+.DS_Store

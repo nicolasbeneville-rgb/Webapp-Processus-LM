@@ -493,3 +493,60 @@ def validation_dashboard(validations: dict) -> dict:
         "total_checks": total,
         "passed_checks": passed_count,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# VALIDATION 9 — Readiness production
+# ═══════════════════════════════════════════════════════════════════
+
+def validate_production_readiness(
+    rapport: dict,
+    model_result: dict,
+    problem_type: str,
+    metric_threshold: float = DEFAULT_MIN_SCORE,
+) -> dict:
+    """Vérifie qu'un modèle est prêt pour la production.
+
+    Gates vérifiés :
+    1. Score test ≥ seuil métier
+    2. Modèle sauvegardé (chemin projet présent)
+    3. Sur-apprentissage < 15% (seuil critique)
+    4. Métadonnées minimales présentes (model card)
+
+    Args:
+        rapport: Dictionnaire du projet (état complet).
+        model_result: Résultat d'entraînement du meilleur modèle.
+        problem_type: Type de problème ML.
+        metric_threshold: Seuil métier minimum accepté.
+
+    Returns:
+        Dictionnaire de résultat de validation.
+    """
+    from src.rules_engine import evaluate_stage_gates
+
+    modele_meta = (rapport or {}).get("modele", {})
+    mr = model_result or {}
+
+    ctx = {
+        "best_test_score": mr.get("test_score", 0),
+        "overfit_pct": mr.get("overfit_pct", 0),
+        "model_saved": bool(rapport and rapport.get("chemin")),
+        "metric_threshold": metric_threshold,
+        "nom_modele": modele_meta.get("nom"),
+        "type_probleme": problem_type,
+        "score_test": mr.get("test_score"),
+        "date_entrainement": modele_meta.get("date") or modele_meta.get("trained_at"),
+    }
+
+    result = evaluate_stage_gates("production", ctx)
+    details = result["blocking"] + result["warnings"]
+    passed = result["passed"]
+
+    if passed and not result["warnings"]:
+        message = "✅ Modèle prêt pour la production."
+    elif passed:
+        message = "⚠️ Modèle déployable avec précautions."
+    else:
+        message = "❌ Modèle non prêt pour la production — corrigez les blocages."
+
+    return _result(passed, message, details, warning=passed and bool(result["warnings"]))

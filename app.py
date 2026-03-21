@@ -21,7 +21,7 @@ st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout=APP_LAYOUT)
 # ── Titre ML Studio tout en haut de la sidebar ──
 st.sidebar.markdown(
     '<p style="margin:0;padding:4px 0 2px;font-size:1.1rem;font-weight:800;'
-    'color:#E74C3C;letter-spacing:-0.01em;">⚗️ ML STUDIO</p>',
+    'color:#F59E0B;letter-spacing:-0.01em;">⚗️ ML STUDIO</p>',
     unsafe_allow_html=True,
 )
 
@@ -33,29 +33,31 @@ _nav = st.navigation([_page_main, _page_pred])
 # ── Custom CSS ──
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap');
+
 /* ══════════════════════════════════════════
    PALETTE & DESIGN TOKENS
    ══════════════════════════════════════════ */
 :root {
-    --primary: #4F5BD5;
-    --primary-hover: #3D48B0;
-    --primary-light: #ECEFFE;
-    --primary-subtle: #F5F6FF;
-    --accent: #7C3AED;
-    --success: #059669;
-    --success-light: #ECFDF5;
-    --warning: #D97706;
-    --warning-light: #FFFBEB;
-    --danger: #DC2626;
-    --danger-light: #FEF2F2;
+    --primary: #0F766E;
+    --primary-hover: #115E59;
+    --primary-light: #D1FAF3;
+    --primary-subtle: #ECFEFA;
+    --accent: #B45309;
+    --success: #166534;
+    --success-light: #DCFCE7;
+    --warning: #B45309;
+    --warning-light: #FEF3C7;
+    --danger: #B91C1C;
+    --danger-light: #FEE2E2;
     --surface: #FFFFFF;
     --surface-raised: #FFFFFF;
-    --bg: #F8F9FC;
-    --text: #111827;
-    --text-secondary: #4B5563;
+    --bg: #F2F5F7;
+    --text: #0B1623;
+    --text-secondary: #344054;
     --text-muted: #9CA3AF;
-    --border: #E5E7EB;
-    --border-light: #F3F4F6;
+    --border: #D8E0E7;
+    --border-light: #E7EDF2;
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
     --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
     --shadow-lg: 0 4px 16px rgba(0,0,0,0.08);
@@ -68,16 +70,23 @@ st.markdown("""
    GLOBAL
    ══════════════════════════════════════════ */
 .stApp {
-    background-color: var(--bg);
+    background:
+        radial-gradient(circle at 12% 14%, #E6F7F3 0%, transparent 42%),
+        radial-gradient(circle at 85% 2%, #FFF7E8 0%, transparent 34%),
+        linear-gradient(180deg, #F6F8FA 0%, #EEF2F6 100%);
     color: var(--text);
 }
-* { -webkit-font-smoothing: antialiased; }
+* {
+    -webkit-font-smoothing: antialiased;
+    font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+}
 
 /* ══════════════════════════════════════════
    SIDEBAR — fond bleu foncé, texte clair, compact
    ══════════════════════════════════════════ */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1B2A4A 0%, #162240 100%) !important;
+    background:
+      linear-gradient(180deg, #0B1220 0%, #111827 56%, #1E293B 100%) !important;
     border-right: none;
 }
 section[data-testid="stSidebar"] > div:first-child {
@@ -92,7 +101,7 @@ section[data-testid="stSidebar"] .stElementContainer {
     margin-bottom: 0 !important;
 }
 section[data-testid="stSidebar"] h1 {
-    color: #E74C3C !important;
+    color: #F59E0B !important;
     font-size: 1.1rem !important;
     font-weight: 800 !important;
     letter-spacing: -0.01em;
@@ -220,17 +229,20 @@ section[data-testid="stSidebar"] .stRadio + .stMarkdown + .stRadio [aria-checked
    TYPOGRAPHY
    ══════════════════════════════════════════ */
 h1 {
+    font-family: 'Space Grotesk', 'Segoe UI', sans-serif !important;
     font-weight: 800 !important;
     letter-spacing: -0.025em;
     color: var(--text) !important;
 }
 h2 {
+    font-family: 'Space Grotesk', 'Segoe UI', sans-serif !important;
     color: #1F2937 !important;
     font-weight: 700 !important;
     font-size: 1.3rem !important;
     letter-spacing: -0.015em;
 }
 h3 {
+    font-family: 'Space Grotesk', 'Segoe UI', sans-serif !important;
     color: #374151 !important;
     font-weight: 600 !important;
     font-size: 1.05rem !important;
@@ -345,10 +357,10 @@ details[data-testid="stExpander"] {
     background: linear-gradient(135deg, var(--primary), var(--primary-hover)) !important;
     border: none;
     color: white !important;
-    box-shadow: 0 2px 8px rgba(79,91,213,0.3);
+    box-shadow: 0 2px 10px rgba(15,118,110,0.26);
 }
 .stButton > button[kind="primary"]:hover {
-    box-shadow: 0 4px 12px rgba(79,91,213,0.4);
+    box-shadow: 0 4px 14px rgba(15,118,110,0.36);
     transform: translateY(-1px);
 }
 .stButton > button:not([kind="primary"]):hover {
@@ -518,6 +530,69 @@ hr {
 .home-card:hover {
     box-shadow: var(--shadow-lg);
     transform: translateY(-2px);
+}
+
+/* ══════════════════════════════════════════
+   INDUSTRIAL DASHBOARD COCKPIT
+   ══════════════════════════════════════════ */
+.industrial-shell {
+    background: linear-gradient(135deg, #F8FAFC 0%, #EEF4F7 100%);
+    border: 1px solid #D6E1E8;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    padding: 14px 16px;
+    margin-bottom: 14px;
+}
+.industrial-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.industrial-title {
+    font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+    font-size: 0.98rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #0F172A;
+    text-transform: uppercase;
+}
+.industrial-sub {
+    color: #475467;
+    font-size: 0.8rem;
+}
+.industrial-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.industrial-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    border: 1px solid #CBD5E1;
+    background: #FFFFFF;
+    color: #1E293B;
+}
+.industrial-chip.ok {
+    border-color: #86EFAC;
+    background: #F0FDF4;
+    color: #166534;
+}
+.industrial-chip.warn {
+    border-color: #FCD34D;
+    background: #FFFBEB;
+    color: #92400E;
+}
+.industrial-chip.critical {
+    border-color: #FCA5A5;
+    background: #FEF2F2;
+    color: #991B1B;
 }
 </style>
 """, unsafe_allow_html=True)

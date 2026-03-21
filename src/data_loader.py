@@ -129,11 +129,17 @@ def detect_column_type(series: pd.Series) -> str:
         if ratio < 0.05 or n_unique <= 20:
             return "Catégoriel (category)"
 
-        # Tentative de détection de date
+        # Tentative de détection de date (essai plusieurs formats)
         try:
             sample = series.dropna().head(20)
-            pd.to_datetime(sample)
-            return "Date (datetime)"
+            # Essai 1 : dayfirst=True (format européen DD/MM/YYYY)
+            parsed = pd.to_datetime(sample, dayfirst=True, errors="coerce")
+            if parsed.notna().mean() > 0.8:
+                return "Date (datetime)"
+            # Essai 2 : format ISO / américain
+            parsed = pd.to_datetime(sample, errors="coerce")
+            if parsed.notna().mean() > 0.8:
+                return "Date (datetime)"
         except (ValueError, TypeError):
             pass
 
@@ -230,7 +236,14 @@ def apply_typing(df: pd.DataFrame, type_mapping: dict,
                 if fmt:
                     result[col] = pd.to_datetime(result[col], format=fmt, errors="coerce")
                 else:
-                    result[col] = pd.to_datetime(result[col], errors="coerce", dayfirst=True)
+                    # Essai intelligent : tester dayfirst=True vs False,
+                    # garder celui qui parse le plus de valeurs
+                    parsed_df = pd.to_datetime(result[col], errors="coerce", dayfirst=True)
+                    parsed_us = pd.to_datetime(result[col], errors="coerce", dayfirst=False)
+                    if parsed_df.notna().sum() >= parsed_us.notna().sum():
+                        result[col] = parsed_df
+                    else:
+                        result[col] = parsed_us
 
         except Exception:
             # En cas d'erreur, conserver la colonne telle quelle

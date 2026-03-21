@@ -16,7 +16,12 @@ APP_LAYOUT = "wide"
 # ═══════════════════════════════════════════════════════════
 # 2. TYPES DE PROBLÈME SUPPORTÉS
 # ═══════════════════════════════════════════════════════════
-PROBLEM_TYPES = ["Régression", "Classification", "Série temporelle"]
+PROBLEM_TYPES = [
+    "Régression",
+    "Classification",
+    "Série temporelle",
+    "Détection d'anomalies",
+]
 
 # ═══════════════════════════════════════════════════════════
 # 3. SEUILS DE VALIDATION PAR DÉFAUT
@@ -129,6 +134,10 @@ CLASSIFICATION_MODELS = [
     "Gradient Boosting",
     "SVM",
     "Naive Bayes",
+]
+
+ANOMALY_MODELS = [
+    "Isolation Forest",
 ]
 
 # ═══════════════════════════════════════════════════════════

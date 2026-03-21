@@ -28,6 +28,11 @@ from src.timeseries import (
     plot_timeseries_interactive,
     plot_seasonal_boxplot, auto_summary, suggest_arima_order,
 )
+from src.rules_engine import (
+    detect_leakage_suspects,
+    detect_compliance_risks,
+    evaluate_stage_gates,
+)
 from utils.data_utils import recommend_models, recommend_preprocessing
 from utils.projet_manager import sauvegarder_rapport, ajouter_historique
 
@@ -553,6 +558,68 @@ le modèle va apprendre à prédire.
     all_cols = df.columns.tolist()
 
     # ═══════════════════════════════════════
+    # Parcours Détection d'anomalies
+    # ═══════════════════════════════════════
+    if problem_type == "Détection d'anomalies":
+        st.subheader("Définir les variables de détection")
+        st.caption(
+            "Le modèle apprend le comportement normal des données, puis marque "
+            "les points atypiques comme anomalies."
+        )
+
+        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if len(num_cols) < 2:
+            st.error("❌ Au moins 2 colonnes numériques sont nécessaires.")
+            return
+
+        saved_features = st.session_state.get("feature_cols")
+        default = [c for c in (saved_features or []) if c in num_cols]
+        if not default:
+            default = num_cols[: min(6, len(num_cols))]
+
+        features = st.multiselect(
+            "Variables utilisées pour détecter les anomalies",
+            num_cols,
+            default=default,
+            key="anomaly_features_m2",
+        )
+
+        compliance_risks = detect_compliance_risks(features)
+        if compliance_risks:
+            st.warning(
+                "⚠️ Colonnes potentiellement sensibles détectées : "
+                + ", ".join(compliance_risks)
+            )
+
+        if st.button("✅ Valider les variables", type="primary", key="validate_anomaly_features"):
+            if len(features) < 2:
+                st.error("❌ Sélectionnez au moins 2 variables numériques.")
+                st.stop()
+
+            if "__anomaly__" not in df.columns:
+                df = df.copy()
+                df["__anomaly__"] = 0
+                st.session_state["df_courant"] = df
+
+            st.session_state["target_col"] = "__anomaly__"
+            st.session_state["feature_cols"] = features
+            st.session_state["cible_done"] = True
+            st.session_state["compliance_risks"] = compliance_risks
+
+            rapport = st.session_state.get("rapport", {})
+            if rapport:
+                rapport["colonne_cible"] = "__anomaly__"
+                rapport["colonnes_features"] = features
+                rapport["compliance_risks"] = compliance_risks
+                rapport["etape_courante"] = max(rapport.get("etape_courante", 0), 5)
+                ajouter_historique(rapport, f"Détection anomalies : {len(features)} features")
+                sauvegarder_rapport(rapport)
+
+            st.session_state["_pending_step"] = 5
+            st.rerun()
+        return
+
+    # ═══════════════════════════════════════
     # Parcours Série temporelle
     # ═══════════════════════════════════════
     if problem_type == "Série temporelle":
@@ -751,18 +818,51 @@ le modèle va apprendre à prédire.
         features = st.multiselect("Variables sélectionnées", other_cols,
                                    default=default, key="feature_select_m2")
 
+        leakage_suspects = detect_leakage_suspects(df, target, features)
+        compliance_risks = detect_compliance_risks(features)
+
+        if leakage_suspects:
+            st.warning(
+                "⚠️ Variables potentiellement fuyardes (data leakage) : "
+                + ", ".join(leakage_suspects)
+            )
+        if compliance_risks:
+            st.warning(
+                "⚠️ Variables potentiellement sensibles (compliance) : "
+                + ", ".join(compliance_risks)
+            )
+
         if st.button("✅ Valider cible et variables", type="primary"):
             if not features:
                 st.error("❌ Sélectionnez au moins **une variable explicative**.")
                 st.stop()
+
+            gate_ctx = {
+                "n_rows_after_cleaning": len(df),
+                "n_nan_residuals": int(df[features + [target]].isna().sum().sum()),
+                "n_features": len(features),
+                "leakage_suspects": leakage_suspects,
+            }
+            gate = evaluate_stage_gates("preparation", gate_ctx)
+            if not gate["passed"]:
+                for msg in gate["blocking"]:
+                    st.error(f"❌ {msg}")
+                st.stop()
+            for msg in gate["warnings"]:
+                st.warning(f"⚠️ {msg}")
+
             st.session_state["target_col"] = target
             st.session_state["feature_cols"] = features
             st.session_state["cible_done"] = True
+            st.session_state["leakage_suspects"] = leakage_suspects
+            st.session_state["compliance_risks"] = compliance_risks
 
             rapport = st.session_state.get("rapport", {})
             if rapport:
                 rapport["colonne_cible"] = target
                 rapport["colonnes_features"] = features
+                rapport["leakage_suspects"] = leakage_suspects
+                rapport["compliance_risks"] = compliance_risks
                 rapport["etape_courante"] = max(rapport.get("etape_courante", 0), 5)
                 ajouter_historique(rapport, f"Cible={target}, {len(features)} features")
                 sauvegarder_rapport(rapport)

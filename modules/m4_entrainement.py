@@ -17,10 +17,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from config import (
-    REGRESSION_MODELS, CLASSIFICATION_MODELS,
+    REGRESSION_MODELS, CLASSIFICATION_MODELS, ANOMALY_MODELS,
     DEFAULT_TEST_SIZE, DEFAULT_CV_FOLDS,
 )
-from src.models import split_data, split_data_chronological, train_multiple, get_model
+from src.models import (
+    split_data, split_data_chronological, split_data_stratified,
+    train_multiple, get_model,
+)
+from src.rules_engine import recommend_split_strategy
 from src.evaluation import results_table
 from src.timeseries import (
     prepare_timeseries, suggest_arima_order, fit_arima,
@@ -31,6 +35,7 @@ from utils.projet_manager import (
     ajouter_historique, sauvegarder_objet,
 )
 from utils.data_utils import recommend_models
+from sklearn.model_selection import train_test_split
 
 
 def _sauvegarder_splits(rapport: dict):
@@ -64,8 +69,9 @@ def afficher_entrainement():
     feature_cols = st.session_state.get("feature_cols")
     problem_type = st.session_state.get("problem_type", "")
     is_ts = problem_type == "Série temporelle" or st.session_state.get("ts_horizon_mode")
+    is_anomaly = problem_type == "Détection d'anomalies"
 
-    if df is None or not target_col:
+    if df is None or (not target_col and not is_anomaly):
         st.warning("⚠️ Complétez d'abord les étapes précédentes (cible + variables).")
         return
 
@@ -122,9 +128,9 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
     st.info(f"**Type de problème détecté :** {problem_type}")
 
     # ═══════════════════════════════════════
-    # Parcours Série temporelle
+    # Parcours Série temporelle (ARIMA/SARIMA uniquement hors mode horizon)
     # ═══════════════════════════════════════
-    if problem_type == "Série temporelle":
+    if problem_type == "Série temporelle" and not st.session_state.get("ts_horizon_mode"):
         _afficher_entrainement_ts()
         return
 
@@ -136,6 +142,19 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
             f"régression sera entraîné sur les features temporelles "
             f"construites. Utilisez un split **chronologique** pour "
             f"respecter l'ordre temporel des données.")
+
+    if is_anomaly:
+        st.info(
+            "🚨 **Mode Détection d'anomalies** — apprentissage non supervisé : "
+            "le modèle apprend le comportement normal puis détecte les cas atypiques."
+        )
+
+    leakage_suspects = st.session_state.get("leakage_suspects", [])
+    compliance_risks = st.session_state.get("compliance_risks", [])
+    if leakage_suspects:
+        st.warning("⚠️ Risque de leakage signalé : " + ", ".join(leakage_suspects))
+    if compliance_risks:
+        st.warning("⚠️ Risque compliance (PII potentielle) : " + ", ".join(compliance_risks))
 
     # ═══════════════════════════════════════
     # Parcours ML classique
@@ -153,11 +172,29 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
                                key="test_pct",
                                help="Pourcentage de données réservées au test (20% = bon compromis)") / 100
     with c2:
-        default_split = 1 if st.session_state.get("ts_horizon_mode") else 0
-        split_method = st.radio("Méthode de split",
-                                 ["Aléatoire", "Chronologique"],
-                                 index=default_split,
-                                 key="split_method")
+        # Recommandation automatique de la stratégie de split
+        _valid_feats_for_reco = [c for c in feature_cols if c in df.columns and c != target_col]
+        split_reco = recommend_split_strategy(
+            problem_type, df, target_col, feature_cols=_valid_feats_for_reco,
+        )
+        split_options = ["Aléatoire", "Chronologique", "Stratifié"]
+        reco_method = split_reco["method"]
+        if reco_method in split_options:
+            default_split = split_options.index(reco_method)
+        else:
+            default_split = 1 if st.session_state.get("ts_horizon_mode") else 0
+
+        split_method = st.radio(
+            "Méthode de split",
+            split_options,
+            index=default_split,
+            key="split_method",
+            help=split_reco["reason"],
+        )
+        if split_reco.get("mandatory") and split_method != reco_method:
+            st.warning(f"⚠️ {split_reco['warning']}")
+        elif split_reco.get("warning"):
+            st.caption(f"💡 {split_reco['reason']}")
 
     # Effectuer le split
     if "X_train" not in st.session_state:
@@ -170,6 +207,16 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
             if split_method == "Chronologique":
                 X_train, X_test, y_train, y_test = split_data_chronological(
                     df, target_col, valid_features, test_size=test_size)
+            elif split_method == "Stratifié":
+                X_train, X_test, y_train, y_test = split_data_stratified(
+                    df, target_col, valid_features, test_size=test_size)
+            elif is_anomaly:
+                X = df[valid_features].values
+                X_train, X_test = train_test_split(
+                    X, test_size=test_size, random_state=42,
+                )
+                y_train = np.zeros(len(X_train))
+                y_test = np.zeros(len(X_test))
             else:
                 X_train, X_test, y_train, y_test = split_data(
                     df, target_col, valid_features, test_size=test_size)
@@ -208,11 +255,14 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
     # ═══════════════════════════════════════
     st.subheader("2. Sélection des modèles")
 
-    model_list = REGRESSION_MODELS if problem_type == "Régression" else CLASSIFICATION_MODELS
+    if is_anomaly:
+        model_list = ANOMALY_MODELS
+    else:
+        model_list = REGRESSION_MODELS if problem_type == "Régression" else CLASSIFICATION_MODELS
 
     # Pré-sélection intelligente
     recommandes = st.session_state.get("modeles_recommandes", [])
-    if not recommandes:
+    if not recommandes and not is_anomaly:
         reco = recommend_models(df, target_col, problem_type)
         recommandes = reco.get("principaux", [])
 
@@ -229,12 +279,12 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
         key="model_selection",
     )
 
-    if recommandes:
+    if recommandes and not is_anomaly:
         st.caption(f"💡 Recommandés par le diagnostic : {', '.join(recommandes)}")
 
     # Cross-validation
     use_cv = st.checkbox("Validation croisée (plus lent mais plus fiable)",
-                          value=False, key="use_cv")
+                          value=False, key="use_cv", disabled=is_anomaly)
     cv_folds = DEFAULT_CV_FOLDS
     if use_cv:
         cv_folds = st.slider("Nombre de folds", 3, 10, DEFAULT_CV_FOLDS, key="cv_folds",
@@ -279,7 +329,7 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
             results = train_multiple(
                 selected_models, X_train, y_train, X_test, y_test,
                 problem_type, model_params=model_params,
-                cv_folds=cv_folds if use_cv else 0,
+                cv_folds=cv_folds if (use_cv and not is_anomaly) else 0,
                 progress_callback=update_progress,
             )
 
@@ -401,7 +451,9 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
         gap = abs(train_s - score) * 100 if train_s > 0 else 0
 
         # Diagnostic
-        if score > 0.85:
+        if is_anomaly:
+            st.success("🟢 Modèle anomalies entraîné. Vérifiez surtout la stabilité du taux d'anomalies.")
+        elif score > 0.85:
             st.success(f"🟢 Très bon score ({score:.1%}). Le modèle est performant.")
         elif score > 0.65:
             st.warning(f"🟡 Score correct ({score:.1%}) mais améliorable.")

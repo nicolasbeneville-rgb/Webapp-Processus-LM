@@ -23,11 +23,37 @@ from modules.m6_prediction import afficher_optimisation_prediction
 from modules.aide_contextuelle import afficher_aide, afficher_aide_etape, afficher_glossaire
 from utils.projet_manager import (
     exporter_projet_zip, exporter_projet_portable,
-    importer_projet_portable, sauvegarder_projet_complet,
+    importer_projet_portable, sauvegarder_projet_complet, sauvegarder_rapport,
 )
 
 import os
 _IS_CLOUD = os.path.exists("/mount/src")
+
+
+def _autosave_on_step_change(step_idx: int):
+    """Sauvegarde automatiquement lors d'un changement d'étape."""
+    prev_step = st.session_state.get("_last_nav_step")
+    st.session_state["_last_nav_step"] = step_idx
+
+    if prev_step is None or prev_step == step_idx:
+        return
+
+    rapport = st.session_state.get("rapport")
+    if not rapport:
+        return
+
+    rapport["etape_courante"] = max(rapport.get("etape_courante", 0), step_idx)
+    try:
+        sauvegarder_rapport(rapport)
+
+        if not _IS_CLOUD and rapport.get("chemin"):
+            sauvegarder_projet_complet(st.session_state)
+
+        # Nettoyer une éventuelle erreur précédente si la sauvegarde redevient OK.
+        st.session_state.pop("_autosave_error", None)
+    except Exception as exc:
+        # Ne jamais bloquer la navigation en cas de problème disque.
+        st.session_state["_autosave_error"] = str(exc)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -170,6 +196,85 @@ def _indicateur_statut():
             st.caption(f"**9. Optimisation** — {n_params} hyper-param.")
 
 
+def _render_industrial_dashboard(step_idx: int):
+    """Affiche un cockpit opérationnel (Industrial Dashboard) en haut de la zone principale."""
+    if st.session_state.get("df_courant") is None:
+        return
+
+    rapport = st.session_state.get("rapport", {})
+    df = st.session_state.get("df_courant")
+    n_rows, n_cols = df.shape
+    max_step = _etape_max_accessible()
+    progress_pct = int((max_step / max(len(STEPS) - 1, 1)) * 100)
+    problem_type = st.session_state.get("problem_type", "Non défini")
+
+    quality_score = (rapport.get("diagnostic", {}) or {}).get("score_qualite")
+    leakage_count = len(st.session_state.get("leakage_suspects", []))
+    compliance_count = len(st.session_state.get("compliance_risks", []))
+
+    help_enabled = st.session_state.get("help_enabled", True)
+    help_level = st.session_state.get("help_level", "Essentiel")
+    help_class = "ok" if help_enabled else "warn"
+    help_txt = f"AIDE {help_level.upper()}" if help_enabled else "AIDE DÉSACTIVÉE"
+
+    if quality_score is None:
+        quality_class = "warn"
+        quality_txt = "QUALITÉ N/D"
+    elif quality_score >= 70:
+        quality_class = "ok"
+        quality_txt = f"QUALITÉ {quality_score:.0f}%"
+    elif quality_score >= 50:
+        quality_class = "warn"
+        quality_txt = f"QUALITÉ {quality_score:.0f}%"
+    else:
+        quality_class = "critical"
+        quality_txt = f"QUALITÉ {quality_score:.0f}%"
+
+    risk_class = "ok" if (leakage_count + compliance_count) == 0 else "warn"
+    risk_txt = f"RISQUES {leakage_count + compliance_count}"
+
+    st.markdown(
+        f"""
+        <div class="industrial-shell">
+            <div class="industrial-topline">
+                <div>
+                    <div class="industrial-title">Industrial Dashboard</div>
+                    <div class="industrial-sub">Pilotage opérationnel du pipeline ML Studio</div>
+                </div>
+                <div class="industrial-chip-row">
+                    <span class="industrial-chip {quality_class}">{quality_txt}</span>
+                    <span class="industrial-chip {risk_class}">{risk_txt}</span>
+                    <span class="industrial-chip {help_class}">{help_txt}</span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Étape active", f"{step_idx}/{len(STEPS) - 1}")
+    c2.metric("Progression", f"{progress_pct}%")
+    c3.metric("Lignes", f"{n_rows}")
+    c4.metric("Colonnes", f"{n_cols}")
+    c5.metric("Problème", problem_type)
+
+    if leakage_count:
+        st.warning(f"⚠️ Leakage suspect détecté sur {leakage_count} colonne(s).")
+    if compliance_count:
+        st.warning(f"⚠️ Compliance: {compliance_count} colonne(s) potentiellement sensibles.")
+
+    if not help_enabled:
+        st.info(
+            "Aide à la demande inactive. Activez-la pour afficher les explications et pièges sur chaque étape."
+        )
+        if st.button("Activer l'aide contextuelle", key="activate_help_from_cockpit"):
+            st.session_state["help_enabled"] = True
+            st.rerun()
+    else:
+        st.caption(f"Mode d'aide actif: {help_level}.")
+
+
 # ═══════════════════════════════════════════════════════════
 # SIDEBAR — NAVIGATION
 # ═══════════════════════════════════════════════════════════
@@ -178,6 +283,10 @@ def _indicateur_statut():
 _projet_actif = st.session_state.get("df_courant") is not None
 _accueil_action = st.session_state.get("accueil_action")
 _on_accueil = (not _projet_actif) and (_accueil_action is None)
+
+st.session_state.setdefault("help_enabled", True)
+st.session_state.setdefault("help_level", "Essentiel")
+st.session_state.setdefault("_show_glossary", False)
 
 step_idx = 0  # valeur par défaut
 
@@ -190,86 +299,70 @@ with st.sidebar:
         st.caption(f"Avancement **{max_step}/{len(STEPS) - 1}**")
 
         # ── Navigation étapes ──
-        step_labels = []
-        for i, label in enumerate(STEPS):
-            if i <= max_step:
-                step_labels.append(label)
-            else:
-                step_labels.append(f"🔒 {label}")
-
+        step_options = list(range(len(STEPS)))
         pending = st.session_state.pop("_pending_step", None)
         if pending is not None and pending <= max_step:
-            default_idx = pending
-            st.session_state.pop("nav_step", None)
-        elif "nav_step" in st.session_state:
-            current_choice = st.session_state["nav_step"]
-            if current_choice in step_labels:
-                default_idx = step_labels.index(current_choice)
-            else:
-                default_idx = min(max_step, len(STEPS) - 1)
-        else:
-            default_idx = min(max_step, len(STEPS) - 1)
+            st.session_state["nav_step_idx"] = pending
 
-        choix = st.radio("Étape", step_labels, index=default_idx,
-                          key="nav_step", label_visibility="collapsed")
+        default_idx = st.session_state.get("nav_step_idx", min(max_step, len(STEPS) - 1))
+        default_idx = min(max(default_idx, 0), len(STEPS) - 1)
 
-        step_idx = step_labels.index(choix)
+        def _format_step(i: int) -> str:
+            return STEPS[i] if i <= max_step else f"🔒 {STEPS[i]}"
+
+        step_idx = st.radio(
+            "Étape",
+            step_options,
+            index=default_idx,
+            key="nav_step_idx",
+            format_func=_format_step,
+            label_visibility="collapsed",
+        )
 
         if step_idx > max_step:
             step_idx = max_step
+            # Eviter la mutation directe d'un widget déjà instancié (StreamlitAPIException).
+            st.session_state["_pending_step"] = max_step
             st.warning(f"🔒 Complétez d'abord l'étape {max_step}.")
+            st.rerun()
 
-        # ── Sous-étapes (si étape 5 ou 6) ──
-        _sub_step_labels = None
-        problem_type = st.session_state.get("problem_type", "Régression")
-        is_ts = problem_type == "Série temporelle" or st.session_state.get("ts_horizon_mode")
-
-        if step_idx == 5:
-            if is_ts:
-                _sub_step_labels = [
-                    "👯 Doublons de date",
-                    "📊 Continuité & Gaps",
-                    "🔧 Interpolation",
-                    "🔬 Valeurs aberrantes",
-                    "✅ Validation",
-                ]
-            else:
-                _sub_step_labels = [
-                    "🕳️ Valeurs manquantes",
-                    "👯 Doublons",
-                    "📊 Outliers",
-                ]
-            sub_choice = st.radio(
-                "Sous-étape", _sub_step_labels,
-                key="nav_sub_step_5",
-                label_visibility="collapsed")
-            st.session_state["_current_sub_step"] = _sub_step_labels.index(sub_choice)
-
-        elif step_idx == 6:
-            if is_ts:
-                _sub_step_labels = [
-                    "📊 Analyse & Recos",
-                    "🔧 Transformations",
-                    "📐 Scaling",
-                    "🎯 Prédiction horizon",
-                    "✅ Valider",
-                ]
-            else:
-                _sub_step_labels = [
-                    "🏷️ Encoding",
-                    "📐 Scaling",
-                    "🔧 Feature Engineering",
-                ]
-            sub_choice = st.radio(
-                "Sous-étape", _sub_step_labels,
-                key="nav_sub_step_6",
-                label_visibility="collapsed")
-            st.session_state["_current_sub_step"] = _sub_step_labels.index(sub_choice)
-        else:
+        # Les sous-étapes 5 et 6 sont pilotées dans la zone principale.
+        if step_idx not in (5, 6):
             st.session_state.pop("_current_sub_step", None)
+
+        st.markdown("---")
+        st.markdown("### Aide à la demande")
+        st.toggle(
+            "Activer l'aide contextuelle",
+            value=st.session_state.get("help_enabled", True),
+            key="help_enabled",
+            help="Affiche les aides directement dans les étapes du pipeline.",
+        )
+
+        if st.session_state.get("help_enabled", True):
+            st.radio(
+                "Niveau d'aide",
+                ["Essentiel", "Expert"],
+                key="help_level",
+                horizontal=True,
+                label_visibility="collapsed",
+            )
+
+            st.session_state["_show_glossary"] = st.checkbox(
+                "Afficher le glossaire rapide",
+                value=st.session_state.get("_show_glossary", False),
+                key="show_glossary_checkbox",
+            )
+
+            if st.session_state.get("_show_glossary", False):
+                with st.expander("Glossaire rapide", expanded=False):
+                    afficher_glossaire()
 
         # ── Enregistrer le projet ──
         rapport = st.session_state.get("rapport")
+        autosave_error = st.session_state.get("_autosave_error")
+        if autosave_error:
+            st.warning("⚠️ Autosave indisponible. Sauvegarde manuelle recommandée.")
         if rapport:
             if not _IS_CLOUD and rapport.get("chemin"):
                 # En local : sauvegarde directe dans le dossier projet
@@ -408,6 +501,8 @@ elif _accueil_action == "nouveau":
 elif _accueil_action == "charger":
     afficher_charger_projet()
 else:
+    _autosave_on_step_change(step_idx)
+    _render_industrial_dashboard(step_idx)
     # Aide contextuelle en haut de chaque étape (ÉTAPE X + expander)
     afficher_aide_etape(step_idx)
     handler = STEP_FUNCTIONS.get(step_idx)

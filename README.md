@@ -63,6 +63,70 @@ Webapp_Processus_LM/
 └── models/                       ← Modèles sauvegardés (.pkl)
 ```
 
+## 🤖 GitHub Copilot — Agent ML Spécialisé
+
+Un agent Copilot **spécialisé pour ML Studio** a été configuré pour accélérer le développement ML et garantir la qualité du code. Il s'active automatiquement quand vous codez dans `src/` et `modules/`.
+
+### ✨ Fonctionnalités
+
+- **Auto-activation** — Chargement automatique des best practices ML quand vous éditez `src/models.py`, `modules/m4_entrainement.py`, etc.
+- **Pattern guidance** — Suggestions intelligentes basées sur les 500+ lignes de patterns validés du projet
+- **Best practices embarquées** — Hyperparameter grids, data validation rules, error handling patterns
+- **Code review** — Prompt `/ml-review` pour vérifier completeness et quality gates
+
+### 📚 Ressources
+
+- **Fichier d'instructions** : [copilot-instructions.md](copilot-instructions.md) — Guide complet (12 sections)
+- **Prompt de review** : [`/.github/prompts/ml-code-review.prompt.md`](.github/prompts/ml-code-review.prompt.md) (accès via `/ml-review` en chat)
+
+### 🎯 Usage Exemples
+
+#### 1. Auto-activation (pas de commande nécessaire)
+Ouvrez `src/models.py` et demandez :
+```
+Write a train_multiple() function that compares 5 regression models
+```
+→ Copilot applique automatiquement patterns de config.py, hyperparameter grids, et validation rules
+
+#### 2. Code Review avec prompt
+En chat VS Code, tapez :
+```
+/ml-review Review my feature_engineering() function for data leakage and multicollinearity checks
+```
+→ Retour structuré avec checklist best practices, issues, et recommendations
+
+#### 3. Hyperparameter validation
+```
+/ml-review Is this Random Forest grid appropriate? 
+{
+  "n_estimators": [50, 100, 200, 500],
+  "max_depth": [3, 5, 10, 15, 20],
+}
+```
+→ Copilot suggère RandomizedSearchCV, compare à DEFAULT_PARAM_GRIDS de config.py
+
+### 📖 Couverture Copilot
+
+Le guide Copilot couvre :
+- ✅ Model instantiation patterns (`get_model()` registry)
+- ✅ Training logic (`train_model()` + cross-validation)
+- ✅ Hyperparameter tuning (GridSearchCV, RandomizedSearchCV)
+- ✅ Feature engineering (combine, transform, discretize)
+- ✅ Quality validation rules (config.py thresholds)
+- ✅ Common pitfalls (data leakage, overfitting, session state)
+- ✅ Metrics interpretation (R², RMSE, F1, AUC-ROC)
+
+### ⚙️ Configuration
+
+Les instructions Copilot sont configurées pour :
+- Charger automatiquement quand vous éditez `src/**/*.py` ou `modules/**/*.py`
+- Inclure best practices, patterns validés, et seuils de qualité du projet
+- Supporter les principales commandes de review et réfactoring
+
+📌 **Pas de configuration supplémentaire nécessaire** — utilisation directe en chat VS Code.
+
+---
+
 ## Étapes de l'application
 
 | # | Étape | Description |

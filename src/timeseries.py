@@ -25,12 +25,14 @@ def detect_datetime_column(df: pd.DataFrame) -> str | None:
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             return col
-    # Tenter la conversion
+    # Tenter la conversion (format européen DD/MM puis ISO)
     for col in df.columns:
         if df[col].dtype == object:
             try:
-                pd.to_datetime(df[col].head(20), infer_datetime_format=True)
-                return col
+                sample = df[col].dropna().head(20)
+                parsed = pd.to_datetime(sample, dayfirst=True, errors="coerce")
+                if parsed.notna().mean() > 0.8:
+                    return col
             except (ValueError, TypeError):
                 continue
     return None
@@ -44,7 +46,7 @@ def prepare_timeseries(df: pd.DataFrame, datetime_col: str,
         pd.Series avec index DatetimeIndex, triée et sans doublons.
     """
     ts = df[[datetime_col, target_col]].copy()
-    ts[datetime_col] = pd.to_datetime(ts[datetime_col])
+    ts[datetime_col] = pd.to_datetime(ts[datetime_col], dayfirst=True, errors="coerce")
     ts = ts.sort_values(datetime_col).drop_duplicates(subset=datetime_col)
     ts = ts.set_index(datetime_col)[target_col]
     ts = ts.dropna()

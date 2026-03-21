@@ -90,7 +90,7 @@ def _afficher_avant_apres(avant: pd.DataFrame, apres: pd.DataFrame, titre: str =
         st.caption(d)
 
 
-def _afficher_nettoyage_ts(df: pd.DataFrame):
+def _afficher_nettoyage_ts(df: pd.DataFrame, sub_step: int):
     """Nettoyage spécifique aux séries temporelles : doublons, continuité, gaps, interpolation."""
     dt_col = st.session_state.get("ts_datetime_col")
     val_col = st.session_state.get("ts_value_col")
@@ -100,9 +100,6 @@ def _afficher_nettoyage_ts(df: pd.DataFrame):
 
     num_cols = [c for c in df.select_dtypes(include="number").columns if c != val_col]
     value_cols = [val_col] + num_cols if val_col else num_cols
-
-    # Navigation par sous-étape (piloté par la sidebar)
-    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 5a. Doublons de date
@@ -1029,21 +1026,50 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
 | **Supprimer** | Beaucoup de trous (>50%) dans une colonne → la colonne est inutilisable |
 """)
 
+    problem_type = st.session_state.get("problem_type", "Régression")
+    is_ts = problem_type == "Série temporelle"
+
+    # Sous-étapes affichées dans la zone principale (et non dans la sidebar)
+    if is_ts:
+        step5_labels = [
+            "👯 Doublons de date",
+            "📊 Continuité & Gaps",
+            "🔧 Interpolation",
+            "🔬 Valeurs aberrantes",
+            "✅ Validation",
+        ]
+    else:
+        step5_labels = [
+            "🕳️ Valeurs manquantes",
+            "👯 Doublons",
+            "📊 Outliers",
+        ]
+
+    st.markdown("### Sous-étapes de nettoyage")
+    current_step5 = st.session_state.get("_current_sub_step", 0)
+    current_step5 = min(max(current_step5, 0), len(step5_labels) - 1)
+    sub_choice = st.radio(
+        "Sous-étapes Étape 5",
+        step5_labels,
+        index=current_step5,
+        key="main_step5_substep",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    sub_step = step5_labels.index(sub_choice)
+    st.session_state["_current_sub_step"] = sub_step
+
     # ═══════════════════════════════════════
     # Parcours TS : analyse de continuité
     # ═══════════════════════════════════════
-    problem_type = st.session_state.get("problem_type", "Régression")
     if problem_type == "Série temporelle":
-        _afficher_nettoyage_ts(df)
+        _afficher_nettoyage_ts(df, sub_step)
         return
 
     # Indicateurs de progression des sous-étapes
     manquantes_done = st.session_state.get("manquantes_done", False)
     doublons_done = st.session_state.get("doublons_done", False)
     outliers_done = st.session_state.get("outliers_done", False)
-
-    # Navigation par sous-étape (piloté par la sidebar)
-    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 5a. Valeurs manquantes
@@ -1372,11 +1398,7 @@ avariés, le plat sera raté. Le nettoyage suit un **ordre précis** :
             sauvegarder_rapport(rapport)
 
 
-            ajouter_historique(rapport, "Nettoyage terminé")
-            sauvegarder_rapport(rapport)
-
-
-def _afficher_transformation_ts(df: pd.DataFrame):
+def _afficher_transformation_ts(df: pd.DataFrame, sub_step: int):
     """Transformations spécifiques aux séries temporelles."""
     val_col = st.session_state.get("ts_value_col")
     dt_col = st.session_state.get("ts_datetime_col")
@@ -1384,9 +1406,6 @@ def _afficher_transformation_ts(df: pd.DataFrame):
     if not val_col or val_col not in df.columns:
         st.warning("⚠️ Colonne cible TS non définie. Retournez au diagnostic.")
         return
-
-    # Navigation par sous-étape (piloté par la sidebar)
-    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 6a. Recommandations automatiques
@@ -2276,11 +2295,41 @@ def afficher_transformation():
         st.info("🔒 **Verrouillé** — Terminez d'abord le nettoyage (étape 5).")
         return
 
-    # Shortcut pour séries temporelles — transformations spécifiques TS
+    # Sous-étapes affichées dans la zone principale (comme l'étape 5)
     problem_type = st.session_state.get("problem_type", "Régression")
     is_ts = problem_type == "Série temporelle" or st.session_state.get("ts_horizon_mode")
     if is_ts:
-        _afficher_transformation_ts(df)
+        step6_labels = [
+            "📊 Analyse & Recos",
+            "🔧 Transformations",
+            "📐 Scaling",
+            "🎯 Prédiction horizon",
+            "✅ Valider",
+        ]
+    else:
+        step6_labels = [
+            "🏷️ Encoding",
+            "📐 Scaling",
+            "🔧 Feature Engineering",
+        ]
+
+    st.markdown("### Sous-étapes de transformation")
+    current_step6 = st.session_state.get("_current_sub_step", 0)
+    current_step6 = min(max(current_step6, 0), len(step6_labels) - 1)
+    sub_choice = st.radio(
+        "Sous-étapes Étape 6",
+        step6_labels,
+        index=current_step6,
+        key="main_step6_substep",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    sub_step = step6_labels.index(sub_choice)
+    st.session_state["_current_sub_step"] = sub_step
+
+    # Shortcut pour séries temporelles — transformations spécifiques TS
+    if is_ts:
+        _afficher_transformation_ts(df, sub_step)
         return
 
     with st.expander("🎓 Pourquoi transformer les données ?", expanded=False):
@@ -2311,9 +2360,6 @@ Les modèles de ML ne comprennent que les **nombres**. Il faut donc :
 
     encoding_done = st.session_state.get("encoding_done", False)
     scaling_done = st.session_state.get("scaling_done", False)
-
-    # Navigation par sous-étape (piloté par la sidebar)
-    sub_step = st.session_state.get("_current_sub_step", 0)
 
     # ═══════════════════════════════════════
     # 6a. Encoding catégoriel

@@ -328,11 +328,26 @@ L'évaluation vérifie la qualité des prédictions du modèle de classification
 
     st.markdown(f"**Modèle évalué :** `{model_name}`")
 
+    # Modèle TS statistique (ARIMA/SARIMA) vs mode horizon (régression supervisée).
+    is_ts_stat_model = (
+        problem_type == "Série temporelle"
+        and not st.session_state.get("ts_horizon_mode")
+        and (
+            best.get("order") is not None
+            or str(model_name).upper().startswith("ARIMA")
+            or str(model_name).upper().startswith("SARIMA")
+        )
+    )
+
     # ═══════════════════════════════════════
     # Parcours Série temporelle
     # ═══════════════════════════════════════
-    if problem_type == "Série temporelle":
+    if is_ts_stat_model:
         _afficher_evaluation_ts(best, model_name)
+        return
+
+    if problem_type == "Détection d'anomalies":
+        _afficher_evaluation_anomaly(best, model_name, X_test)
         return
 
     # Métriques résumées
@@ -640,6 +655,67 @@ def _afficher_evaluation_ts(best: dict, model_name: str):
             if wf_result and "error" not in wf_result:
                 rapport["evaluation_ts"]["wf_mean_mae"] = wf_result["mean_mae"]
             ajouter_historique(rapport, f"Évaluation {model_name} validée")
+            sauvegarder_rapport(rapport)
+
+        st.session_state["_pending_step"] = 9
+        st.rerun()
+
+
+def _afficher_evaluation_anomaly(best: dict, model_name: str, X_test):
+    """Évaluation dédiée au parcours Détection d'anomalies."""
+    model = best.get("model")
+    if model is None or X_test is None:
+        st.warning("⚠️ Données d'évaluation anomalies manquantes.")
+        return
+
+    preds = model.predict(X_test)
+    anomaly_mask = preds == -1
+    anomaly_rate = float(np.mean(anomaly_mask)) if len(preds) else 0.0
+    normal_rate = 1.0 - anomaly_rate
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Cas analysés", f"{len(preds)}")
+    c2.metric("Taux anomalies", f"{anomaly_rate * 100:.2f}%")
+    c3.metric("Taux normaux", f"{normal_rate * 100:.2f}%")
+
+    if anomaly_rate > 0.2:
+        st.warning("⚠️ Taux d'anomalies élevé (>20%) : possible dérive ou contamination forte.")
+    elif anomaly_rate < 0.005:
+        st.info("ℹ️ Très peu d'anomalies détectées (<0.5%). Vérifiez le paramètre contamination.")
+    else:
+        st.success("✅ Taux d'anomalies plausible pour un premier modèle.")
+
+    st.divider()
+    st.subheader("Distribution des scores d'anomalie")
+    if hasattr(model, "decision_function"):
+        scores = model.decision_function(X_test)
+        fig, ax = plt.subplots(figsize=(7, 3))
+        ax.hist(scores, bins=40, color="#4F5BD5", alpha=0.85, edgecolor="white")
+        ax.set_title("Scores de décision (plus bas = plus anormal)", fontsize=10, fontweight="bold")
+        ax.set_xlabel("Score")
+        ax.set_ylabel("Fréquence")
+        ax.grid(True, alpha=0.3)
+        st.pyplot(fig)
+        plt.close()
+
+    st.divider()
+    st.markdown("**Recommandations :**")
+    st.markdown("- Vérifiez manuellement un échantillon des lignes marquées anomalies")
+    st.markdown("- Ajustez `contamination` si le taux détecté est trop haut ou trop bas")
+    st.markdown("- Surveillez ce taux en production pour détecter la dérive")
+
+    st.divider()
+    if st.button("✅ Valider l'évaluation", type="primary", key="validate_eval_anomaly"):
+        st.session_state["evaluation_done"] = True
+
+        rapport = st.session_state.get("rapport", {})
+        if rapport:
+            rapport["etape_courante"] = max(rapport.get("etape_courante", 0), 9)
+            rapport["evaluation_anomaly"] = {
+                "anomaly_rate": round(anomaly_rate, 4),
+                "n_samples": int(len(preds)),
+            }
+            ajouter_historique(rapport, f"Évaluation anomalies de {model_name} validée")
             sauvegarder_rapport(rapport)
 
         st.session_state["_pending_step"] = 9

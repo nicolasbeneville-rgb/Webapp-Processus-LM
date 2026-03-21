@@ -360,6 +360,8 @@ def exporter_projet_portable(session_state) -> bytes:
         "ts_datetime_col": session_state.get("ts_datetime_col"),
         "ts_value_col": session_state.get("ts_value_col"),
         "ts_series": session_state.get("ts_series"),
+        "ts_horizon_mode": session_state.get("ts_horizon_mode", False),
+        "ts_horizon_value": session_state.get("ts_horizon_value"),
     }
 
     buf = io.BytesIO()
@@ -425,5 +427,9 @@ def importer_projet_portable(file_bytes, session_state):
         session_state["ts_value_col"] = data["ts_value_col"]
     if data.get("ts_series") is not None:
         session_state["ts_series"] = data["ts_series"]
+    if data.get("ts_horizon_mode"):
+        session_state["ts_horizon_mode"] = True
+    if data.get("ts_horizon_value") is not None:
+        session_state["ts_horizon_value"] = data.get("ts_horizon_value")
 
     return data.get("nom", "Projet")

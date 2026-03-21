@@ -45,9 +45,10 @@ def _restaurer_projet(projet: dict):
     st.session_state["projet_charge"] = True
     st.session_state["etape_courante"] = etape
 
-    # ── Restaurer le type de problème ──
-    if projet.get("type_ml"):
-        st.session_state["problem_type"] = projet["type_ml"]
+    # ── Restaurer le type de problème (priorité à l'état courant du pipeline) ──
+    restored_problem_type = projet.get("problem_type") or projet.get("type_ml")
+    if restored_problem_type:
+        st.session_state["problem_type"] = restored_problem_type
     if projet.get("colonne_cible"):
         st.session_state["target_col"] = projet["colonne_cible"]
     if projet.get("colonnes_features"):
@@ -56,6 +57,18 @@ def _restaurer_projet(projet: dict):
         st.session_state["ts_datetime_col"] = projet["ts_datetime_col"]
     if projet.get("parcours") == "ts" and projet.get("colonne_cible"):
         st.session_state["ts_value_col"] = projet["colonne_cible"]
+
+    # Restaurer explicitement le mode horizon si présent dans le rapport.
+    nettoyage = projet.get("nettoyage", {})
+    ts_horizon_cfg = nettoyage.get("ts_horizon", {}) if isinstance(nettoyage, dict) else {}
+    ts_horizon_mode = bool(projet.get("ts_horizon_mode") or ts_horizon_cfg)
+    if ts_horizon_mode:
+        st.session_state["ts_horizon_mode"] = True
+        if ts_horizon_cfg.get("horizon") is not None:
+            st.session_state["ts_horizon_value"] = ts_horizon_cfg.get("horizon")
+        # En mode horizon on repasse dans un entraînement supervisé classique.
+        if st.session_state.get("problem_type") == "Série temporelle":
+            st.session_state["problem_type"] = "Régression"
 
     # ── Restaurer le DataFrame (le plus avancé disponible) ──
     df = None
@@ -265,14 +278,14 @@ def afficher_demarrage():
 ```
                     Que voulez-vous prédire ?
                             │
-             ┌──────────────┼──────────────┐
-             │              │              │
-        Un nombre ?    Une catégorie ?  Une évolution
-        (prix, durée,  (oui/non,       dans le temps ?
-         température)   type, classe)   (niveau, ventes)
-             │              │              │
-         RÉGRESSION   CLASSIFICATION  SÉRIE TEMPORELLE
-             │              │              │
+             ┌──────────────┼──────────────┬──────────────┐
+             │              │              │              │
+        Un nombre ?    Une catégorie ?  Une évolution   Détecter des
+        (prix, durée,  (oui/non,       dans le temps ?  cas atypiques ?
+         température)   type, classe)   (niveau, ventes) (fraude, panne)
+             │              │              │              │
+         RÉGRESSION   CLASSIFICATION  SÉRIE TEMPORELLE  ANOMALIES
+             │              │              │              │
           Exemples :     Exemples :     Exemples :
           · prix d'un    · risque de    · niveau d'un
             appartement    défaut (O/N)   barrage à J+15
@@ -290,8 +303,12 @@ def afficher_demarrage():
 - *ARIMA* : basé uniquement sur l'historique de la variable (simple, univarié)
 - *Prédiction horizon* : utilise d'autres variables (météo, débits…) pour prédire à N jours
 
+**🚨 Détection d'anomalies** → vous n'avez pas forcément de cible, vous voulez détecter
+les observations **atypiques** (fraude, panne, valeurs incohérentes).
+
 > **💡 Pas sûr ?** Si votre cible est un nombre → **Régression**. Si c'est du texte ou des catégories → **Classification**.
 > Si vous avez une colonne de dates et voulez prédire le futur → **Série temporelle**.
+> Si vous voulez identifier des cas rares/suspects sans cible fiable → **Détection d'anomalies**.
 """)
 
     col1, col2 = st.columns(2)
@@ -303,6 +320,7 @@ def afficher_demarrage():
             "Régression": "📐 Prédire un **nombre** (prix, durée, température…)",
             "Classification": "🏷️ Prédire une **catégorie** (oui/non, type…)",
             "Série temporelle": "📈 **Prédire l'évolution** dans le temps",
+            "Détection d'anomalies": "🚨 **Détecter des observations atypiques** sans cible",
         }
         problem_type = st.radio("Que voulez-vous prédire ?", PROBLEM_TYPES)
         st.caption(problem_help.get(problem_type, ""))
@@ -385,6 +403,13 @@ def afficher_demarrage():
                     f"En {problem_type} il faut au minimum **1 cible + 1 variable "
                     f"explicative**. Vérifiez votre fichier.")
 
+            if problem_type == "Détection d'anomalies" and n_num < 2:
+                st.error(
+                    "❌ La détection d'anomalies nécessite au moins **2 colonnes numériques** "
+                    "pour caractériser les comportements normaux/anormaux."
+                )
+                all_valid = False
+
             if problem_type == "Série temporelle" and n_num == 0:
                 st.error("❌ Aucune colonne numérique détectée. "
                          "Une série temporelle nécessite au moins **1 colonne "
@@ -400,7 +425,12 @@ def afficher_demarrage():
         if st.button("🚀 Démarrer le projet", type="primary"):
             rapport = creer_projet(nom_projet or "Mon_projet")
             rapport["type_ml"] = problem_type
-            rapport["parcours"] = "ts" if problem_type == "Série temporelle" else "ml_classique"
+            if problem_type == "Série temporelle":
+                rapport["parcours"] = "ts"
+            elif problem_type == "Détection d'anomalies":
+                rapport["parcours"] = "anomaly"
+            else:
+                rapport["parcours"] = "ml_classique"
             rapport["etape_courante"] = 1
             ajouter_historique(rapport, f"Projet créé — {len(dataframes)} fichier(s)")
 

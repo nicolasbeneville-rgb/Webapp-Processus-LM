@@ -33,6 +33,7 @@ from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingRegressor,
     GradientBoostingClassifier,
+    IsolationForest,
 )
 from sklearn.svm import SVR, SVC
 from sklearn.neighbors import KNeighborsClassifier
@@ -95,6 +96,8 @@ def get_model(name: str, problem_type: str, params: dict = None):
         ("Gradient Boosting", "Classification"): GradientBoostingClassifier,
         ("SVM", "Classification"): SVC,
         ("Naive Bayes", "Classification"): GaussianNB,
+        # ── Détection d'anomalies ──
+        ("Isolation Forest", "Détection d'anomalies"): IsolationForest,
     }
 
     key = (name, problem_type)
@@ -143,6 +146,11 @@ DEFAULT_PARAM_GRIDS = {
     "Régression Logistique": {"C": [0.01, 0.1, 1, 10, 100]},
     "KNN": {"n_neighbors": [3, 5, 7, 11, 15]},
     "SVM": {"C": [0.1, 1, 10], "kernel": ["rbf", "linear"]},
+    "Isolation Forest": {
+        "n_estimators": [100, 200, 300],
+        "contamination": [0.01, 0.03, 0.05, 0.1],
+        "max_samples": ["auto", 0.7, 0.9],
+    },
 }
 
 
@@ -166,9 +174,14 @@ def train_model(model, X_train, y_train, X_test, y_test,
     start = time.time()
 
     try:
-        model.fit(X_train, y_train)
-        train_pred = model.predict(X_train)
-        test_pred = model.predict(X_test)
+        if problem_type == "Détection d'anomalies":
+            model.fit(X_train)
+            train_pred = model.predict(X_train)
+            test_pred = model.predict(X_test)
+        else:
+            model.fit(X_train, y_train)
+            train_pred = model.predict(X_train)
+            test_pred = model.predict(X_test)
         elapsed = round(time.time() - start, 2)
 
         result = {
@@ -184,6 +197,18 @@ def train_model(model, X_train, y_train, X_test, y_test,
             result["test_score"] = round(r2_score(y_test, test_pred), 4)
             result["rmse"] = round(np.sqrt(mean_squared_error(y_test, test_pred)), 4)
             result["mae"] = round(mean_absolute_error(y_test, test_pred), 4)
+        elif problem_type == "Détection d'anomalies":
+            train_rate = float(np.mean(train_pred == -1))
+            test_rate = float(np.mean(test_pred == -1))
+            # Score de stabilité : plus le taux d'anomalies est stable train/test,
+            # plus le modèle est robuste à la dérive d'échantillon.
+            stability = max(0.0, 1.0 - abs(train_rate - test_rate))
+            result["train_score"] = round(1.0 - train_rate, 4)
+            result["test_score"] = round(stability, 4)
+            result["anomaly_rate_train"] = round(train_rate, 4)
+            result["anomaly_rate_test"] = round(test_rate, 4)
+            result["f1"] = None
+            result["auc"] = None
         else:
             result["train_score"] = round(accuracy_score(y_train, train_pred), 4)
             result["test_score"] = round(accuracy_score(y_test, test_pred), 4)
@@ -203,7 +228,7 @@ def train_model(model, X_train, y_train, X_test, y_test,
         result["overfit_pct"] = round(abs(result["train_score"] - result["test_score"]) * 100, 2)
 
         # Cross-validation
-        if cv_folds > 0:
+        if cv_folds > 0 and problem_type != "Détection d'anomalies":
             scoring = "r2" if problem_type == "Régression" else "accuracy"
             try:
                 cv_scores = cross_val_score(model, X_train, y_train,
@@ -403,3 +428,40 @@ def load_model(filepath: str):
         Modèle scikit-learn chargé.
     """
     return joblib.load(filepath)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SPLIT STRATIFIÉ
+# ═══════════════════════════════════════════════════════════════════
+
+def split_data_stratified(df: pd.DataFrame, target_col: str, feature_cols: list,
+                           test_size: float = DEFAULT_TEST_SIZE,
+                           random_state: int = DEFAULT_RANDOM_STATE) -> tuple:
+    """Sépare les données avec stratification sur la variable cible.
+
+    Garantit que chaque classe est représentée proportionnellement dans
+    les jeux train et test. Recommandé pour les classifications déséquilibrées.
+
+    Args:
+        df: DataFrame source.
+        target_col: Variable cible (catégorielle).
+        feature_cols: Variables explicatives.
+        test_size: Proportion du jeu de test.
+        random_state: Graine aléatoire.
+
+    Returns:
+        Tuple (X_train, X_test, y_train, y_test).
+    """
+    X = df[feature_cols].values
+    y = df[target_col].values
+
+    try:
+        return train_test_split(
+            X, y, test_size=test_size,
+            random_state=random_state, stratify=y,
+        )
+    except ValueError:
+        # Fallback si stratification impossible (classe avec 1 seul exemple)
+        return train_test_split(
+            X, y, test_size=test_size, random_state=random_state,
+        )

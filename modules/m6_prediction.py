@@ -85,6 +85,80 @@ def _parser_valeurs_grille(text: str, fallback: list) -> list:
     return result if result else fallback
 
 
+def _safe_anomaly_scores(model, X_new):
+    """Retourne les scores d'anomalie si disponibles, sinon None."""
+    try:
+        if hasattr(model, "decision_function"):
+            return model.decision_function(X_new)
+        if hasattr(model, "score_samples"):
+            return model.score_samples(X_new)
+    except Exception:
+        return None
+    return None
+
+
+def _build_anomaly_outputs(df_input: pd.DataFrame, X_new, preds, model):
+    """Construit les sorties de prédiction dédiées à la détection d'anomalies."""
+    df_out = df_input.copy()
+    pred_arr = np.asarray(preds)
+    is_anomaly = pred_arr == -1
+
+    df_out["statut"] = np.where(is_anomaly, "anomalie", "normal")
+    df_out["is_anomaly"] = is_anomaly.astype(int)
+
+    score_col = None
+    scores = _safe_anomaly_scores(model, X_new)
+    if scores is not None:
+        score_col = "anomaly_score"
+        df_out[score_col] = scores
+
+    anomaly_cases = df_out[df_out["is_anomaly"] == 1].copy()
+    if score_col and not anomaly_cases.empty:
+        anomaly_cases = anomaly_cases.sort_values(score_col, ascending=True)
+
+    return df_out, anomaly_cases, score_col
+
+
+def _build_anomaly_summary_html(
+    total_rows: int,
+    anomaly_count: int,
+    model_name: str,
+    score_col: str,
+) -> str:
+    """Génère un résumé HTML simple pour un rapport de cas anormaux."""
+    rate = (anomaly_count / total_rows * 100) if total_rows else 0.0
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    score_txt = score_col if score_col else "non disponible"
+
+    return f"""
+<html>
+    <head>
+        <meta charset=\"utf-8\" />
+        <title>Rapport anomalies</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 24px; color: #1F2937; }}
+            h1 {{ color: #111827; }}
+            .card {{ border: 1px solid #E5E7EB; border-radius: 8px; padding: 16px; margin-top: 12px; }}
+            .kpi {{ font-size: 20px; font-weight: bold; color: #DC2626; }}
+            .muted {{ color: #6B7280; }}
+        </style>
+    </head>
+    <body>
+        <h1>Rapport de détection d'anomalies</h1>
+        <p class=\"muted\">Généré le {generated_at}</p>
+
+        <div class=\"card\">
+            <p><strong>Modèle :</strong> {model_name}</p>
+            <p><strong>Lignes analysées :</strong> {total_rows}</p>
+            <p><strong>Cas anormaux :</strong> {anomaly_count}</p>
+            <p><strong>Taux d'anomalies :</strong> <span class=\"kpi\">{rate:.2f}%</span></p>
+            <p><strong>Colonne score :</strong> {score_txt}</p>
+        </div>
+    </body>
+</html>
+""".strip()
+
+
 def afficher_optimisation_prediction():
     """Étape 9 — Optimisation & Prédiction."""
     best = st.session_state.get("meilleur_modele")
@@ -95,6 +169,15 @@ def afficher_optimisation_prediction():
     model = best.get("model")
     model_name = best.get("name", "?")
     problem_type = st.session_state.get("problem_type", "Régression")
+    is_ts_stat_model = (
+        problem_type == "Série temporelle"
+        and not st.session_state.get("ts_horizon_mode")
+        and (
+            best.get("order") is not None
+            or str(model_name).upper().startswith("ARIMA")
+            or str(model_name).upper().startswith("SARIMA")
+        )
+    )
 
     with st.expander("🎓 Optimisation & Prédiction : comment ça marche ?", expanded=False):
         st.markdown("""
@@ -125,7 +208,7 @@ L'app teste automatiquement des centaines de combinaisons et garde la meilleure.
     # ═══════════════════════════════════════
     # Parcours Série temporelle
     # ═══════════════════════════════════════
-    if problem_type == "Série temporelle":
+    if is_ts_stat_model:
         _afficher_prediction_ts(best, model_name)
         return
 
@@ -333,6 +416,8 @@ L'app teste automatiquement des centaines de combinaisons et garde la meilleure.
             st.warning("Aucun modèle disponible.")
             return
 
+        is_anomaly_mode = problem_type == "Détection d'anomalies"
+
         mode = st.radio("Mode d'entrée",
                          ["📤 Upload CSV", "✏️ Saisie manuelle"],
                          key="pred_mode", horizontal=True)
@@ -355,28 +440,88 @@ L'app teste automatiquement des centaines de combinaisons et garde la meilleure.
                                 df_prep = _appliquer_preprocessing_prediction(df_new)
                                 X_new = df_prep[feature_cols]
                                 preds = model.predict(X_new)
-                                df_new["prédiction"] = preds
+                                if is_anomaly_mode:
+                                    df_pred, anomaly_cases, score_col = _build_anomaly_outputs(
+                                        df_new, X_new, preds, model,
+                                    )
 
-                                if hasattr(model, "predict_proba"):
-                                    probas = model.predict_proba(X_new)
-                                    if probas.shape[1] == 2:
-                                        df_new["probabilité"] = probas[:, 1]
+                                    st.success(f"✅ {len(preds)} lignes analysées.")
+                                    st.dataframe(df_pred, use_container_width=True)
 
-                                st.success(f"✅ {len(preds)} prédictions générées !")
-                                st.dataframe(df_new, use_container_width=True)
+                                    anomaly_count = len(anomaly_cases)
+                                    anomaly_rate = (anomaly_count / len(df_pred) * 100) if len(df_pred) else 0
+                                    st.markdown(
+                                        f"**Cas anormaux détectés :** {anomaly_count} "
+                                        f"({anomaly_rate:.2f}% des lignes)"
+                                    )
 
-                                # Téléchargement
-                                csv_bytes = df_new.to_csv(index=False).encode("utf-8")
-                                st.download_button("📥 Télécharger les résultats",
-                                                    csv_bytes, "predictions.csv",
-                                                    "text/csv", key="dl_pred")
+                                    # Export 1 — résultats complets
+                                    csv_all = df_pred.to_csv(index=False).encode("utf-8")
+                                    st.download_button(
+                                        "📥 Télécharger toutes les prédictions",
+                                        csv_all,
+                                        "predictions_anomaly_full.csv",
+                                        "text/csv",
+                                        key="dl_pred_anomaly_all",
+                                    )
 
-                                rapport = st.session_state.get("rapport", {})
-                                if rapport:
-                                    sauvegarder_csv(rapport, df_new, "predictions.csv")
-                                    ajouter_historique(rapport,
-                                                       f"{len(preds)} prédictions (CSV)")
-                                    sauvegarder_rapport(rapport)
+                                    # Export 2 — cas anormaux seulement
+                                    csv_cases = anomaly_cases.to_csv(index=False).encode("utf-8")
+                                    st.download_button(
+                                        "📥 Télécharger anomaly cases",
+                                        csv_cases,
+                                        "anomaly_cases.csv",
+                                        "text/csv",
+                                        key="dl_pred_anomaly_cases",
+                                    )
+
+                                    # Export 3 — résumé HTML
+                                    html_summary = _build_anomaly_summary_html(
+                                        total_rows=len(df_pred),
+                                        anomaly_count=anomaly_count,
+                                        model_name=model_name,
+                                        score_col=score_col,
+                                    )
+                                    st.download_button(
+                                        "📄 Télécharger le résumé HTML",
+                                        html_summary.encode("utf-8"),
+                                        "anomaly_report_summary.html",
+                                        "text/html",
+                                        key="dl_pred_anomaly_html",
+                                    )
+
+                                    rapport = st.session_state.get("rapport", {})
+                                    if rapport:
+                                        sauvegarder_csv(rapport, df_pred, "predictions_anomaly_full.csv")
+                                        sauvegarder_csv(rapport, anomaly_cases, "anomaly_cases.csv")
+                                        ajouter_historique(
+                                            rapport,
+                                            f"Détection anomalies : {anomaly_count}/{len(df_pred)} cas",
+                                        )
+                                        sauvegarder_rapport(rapport)
+                                else:
+                                    df_new["prédiction"] = preds
+
+                                    if hasattr(model, "predict_proba"):
+                                        probas = model.predict_proba(X_new)
+                                        if probas.shape[1] == 2:
+                                            df_new["probabilité"] = probas[:, 1]
+
+                                    st.success(f"✅ {len(preds)} prédictions générées !")
+                                    st.dataframe(df_new, use_container_width=True)
+
+                                    # Téléchargement
+                                    csv_bytes = df_new.to_csv(index=False).encode("utf-8")
+                                    st.download_button("📥 Télécharger les résultats",
+                                                        csv_bytes, "predictions.csv",
+                                                        "text/csv", key="dl_pred")
+
+                                    rapport = st.session_state.get("rapport", {})
+                                    if rapport:
+                                        sauvegarder_csv(rapport, df_new, "predictions.csv")
+                                        ajouter_historique(rapport,
+                                                           f"{len(preds)} prédictions (CSV)")
+                                        sauvegarder_rapport(rapport)
 
                             except Exception as e:
                                 st.error(f"❌ Erreur : {e}")
@@ -426,13 +571,21 @@ L'app teste automatiquement des centaines de combinaisons et garde la meilleure.
                     X_new = df_prep[feature_cols]
                     pred = model.predict(X_new)[0]
 
-                    st.success(f"🎯 **Prédiction : {pred}**")
+                    if is_anomaly_mode:
+                        status = "anomalie" if pred == -1 else "normal"
+                        st.success(f"🎯 **Statut détecté : {status}**")
+                        scores = _safe_anomaly_scores(model, X_new)
+                        if scores is not None:
+                            score = float(scores[0])
+                            st.write(f"Score anomalie : {score:.6f} (plus bas = plus anormal)")
+                    else:
+                        st.success(f"🎯 **Prédiction : {pred}**")
 
-                    if hasattr(model, "predict_proba"):
-                        probas = model.predict_proba(X_new)[0]
-                        st.markdown("**Probabilités :**")
-                        for i, p in enumerate(probas):
-                            st.write(f"  Classe {i} : {p:.4f}")
+                        if hasattr(model, "predict_proba"):
+                            probas = model.predict_proba(X_new)[0]
+                            st.markdown("**Probabilités :**")
+                            for i, p in enumerate(probas):
+                                st.write(f"  Classe {i} : {p:.4f}")
 
                 except Exception as e:
                     st.error(f"❌ Erreur : {e}")

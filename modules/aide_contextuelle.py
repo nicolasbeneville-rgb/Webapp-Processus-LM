@@ -64,6 +64,49 @@ AIDE = {
     },
 }
 
+AIDE_EXPERT = {
+    0: [
+        "Contrôlez l'encodage et le séparateur détectés avant validation.",
+        "Conservez un échantillon brut pour audit reproductible.",
+    ],
+    1: [
+        "Vérifiez les types limites : IDs numériques, dates ambiguës, booléens textuels.",
+        "La colonne cible doit rester cohérente avec le problème sélectionné.",
+    ],
+    2: [
+        "Surveillez la perte post-jointure et la cardinalité de la clé de fusion.",
+        "Normalisez les clés (trim, casse, format) avant la consolidation.",
+    ],
+    3: [
+        "Validez les alertes qualité avec vos contraintes métier.",
+        "Analysez les corrélations fortes pour éviter les features redondantes.",
+    ],
+    4: [
+        "Éliminez tout risque de fuite de données (data leakage).",
+        "Tracez les features retenues dans le rapport pour l'audit modèle.",
+    ],
+    5: [
+        "Privilégiez médiane/IQR sur distributions asymétriques.",
+        "Mesurez l'impact du nettoyage sur la variance des données.",
+    ],
+    6: [
+        "Le scaler doit être ajusté uniquement sur le train.",
+        "Documentez précisément l'encodage appliqué pour l'inférence.",
+    ],
+    7: [
+        "Comparez train/test/CV pour détecter instabilité ou surapprentissage.",
+        "Conservez baseline + hyperparamètres pour comparaison objective.",
+    ],
+    8: [
+        "Inspectez les résidus pour détecter patterns non modélisés.",
+        "En classification, combinez matrice de confusion, ROC et PR.",
+    ],
+    9: [
+        "Validez le gain d'optimisation avec protocole reproductible.",
+        "Si le gain est marginal, privilégiez robustesse et simplicité.",
+    ],
+}
+
 AIDE_GRAPHIQUES = {
     "reel_vs_predit": {
         "titre": "📈 Réel vs Prédit",
@@ -297,13 +340,24 @@ def afficher_aide(etape: int):
 def afficher_aide_etape(etape: int):
     """Affiche le numéro d'étape + aide contextuelle en haut de la page principale."""
     st.caption(f"ÉTAPE {etape}")
+    if not st.session_state.get("help_enabled", True):
+        return
+
     aide = AIDE.get(etape)
     if not aide:
         return
+
+    help_level = st.session_state.get("help_level", "Essentiel")
     with st.expander("💡 Pourquoi cette étape ?", expanded=False):
         st.markdown(f"**Ce que vous faites ici :** {aide['quoi']}")
         st.markdown(f"**Pourquoi c'est important :** {aide['pourquoi']}")
         st.warning(f"⚠️ **Piège courant :** {aide['piege']}")
+        if help_level == "Expert":
+            checks = AIDE_EXPERT.get(etape, [])
+            if checks:
+                st.markdown("**Contrôle ingénieur :**")
+                for point in checks:
+                    st.markdown(f"- {point}")
 
 
 def afficher_glossaire():

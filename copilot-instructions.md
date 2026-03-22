@@ -18,6 +18,7 @@ This instruction file specializes Copilot for ML Studio — an interactive 12-st
 - **Quality gates**: Strict validation at each step (quality score ≥60%, missing <20%, correlation threshold 0.80, min 50 rows, etc.)
 - **Rules Engine**: `src/rules_engine.py` centralises all business rules: problem type inference, automatic split policy (stratified/chronological/group/cross-val), context-aware metrics, leakage/compliance heuristics, and stage gate evaluation (`evaluate_stage_gates()`)
 - **Anomaly reporting**: Step 9 supports dedicated anomaly exports: full predictions CSV, anomaly cases CSV, and HTML summary report
+- **Data Template Export** (NEW): After Step 1 typing, ML Studio auto-generates downloadable data templates (CSV + Excel) with final columns & inferred types. Templates are embedded in model exports (`.mlmodel`) and displayed in the standalone prediction page for easy data input on new datasets.
 
 ---
 
@@ -425,6 +426,42 @@ user_confirmed = st.radio("Problem type", ["Régression", "Classification"],
                            index=0 if inferred_type == "Régression" else 1)
 ```
 **Action:** Auto-infer problem type based on target cardinality, but always let user confirm.
+
+---
+
+### 5.5 **Data Template Export for Prediction Input**
+
+**Feature:** After Step 1 (Typing), ML Studio auto-generates a downloadable data template (CSV + Excel) with final columns (post-deletion) and inferred types.
+
+**Implementation details:**
+- **Phase 1 (m1_chargement.py):** After user validates typing, generate template with:
+  - Columns from `df_courant` (final columns after any user deletions)
+  - Types deduced from `type_mapping`: "Texte", "Catégorie", "Numérique", "Date", "Booléen"
+  - Files saved: `trame_donnees.csv` + `trame_donnees.xlsx` (2 sheets: "Données" + "Types")
+  - Metadata stored in rapport: `trame_colonnes`, `trame_types`, `trame_csv_path`, `trame_xlsx_path`
+
+- **Phase 2 (m4_entrainement.py):** When exporting model to `.mlmodel`, include template metadata:
+  - Add `trame_colonnes` and `trame_types` to `export_data` dict
+  - Allows prediction page to display exact expected columns & types
+
+- **Phase 3 (app_prediction.py):** In prediction step 2 "Load data":
+  - After model upload, if `model_meta` contains `trame_colonnes` → show expander "📥 Download Template"
+  - Display table: Colonne | Type | Exemple (empty)
+  - Buttons: CSV download + Excel download (2 sheets)
+  - Fallback: if openpyxl unavailable, show caption in Excel column
+
+**When implementing template features:**
+- Always generate template AFTER typing (ensures final columns after user edits)
+- Include type inference logic: extract from `type_mapping` and normalize names
+- Support both CSV (simple) and Excel (with Types reference sheet)
+- Store template metadata in rapport for later export
+- Error handling: wrap openpyxl operations in try/except (graceful fallback)
+
+**User workflow:**
+1. Type data in Step 1 → trame auto-generated
+2. Train model + export → trame embedded in `.mlmodel`
+3. Load model in prediction page → trame displayed
+4. Download trame → fill with new data → upload → get predictions
 
 ---
 

@@ -613,8 +613,11 @@ def afficher_typage():
                     rapport["trame_csv_path"] = os.path.join(chemin_projet, "trame_donnees.csv")
                     rapport["trame_colonnes"] = df_typed.columns.tolist()
                     rapport["trame_types"] = type_hints
-                except Exception:
-                    pass  # Erreur génération trame — continuer sans
+                    
+                    # Confirmation
+                    st.success(f"✅ Trame de données générée : {len(rapport['trame_colonnes'])} colonnes")
+                except Exception as e:
+                    st.warning(f"⚠️ Impossible de générer la trame : {e}")  # Génération trame — continuer sans
 
             rapport["etape_courante"] = max(rapport.get("etape_courante", 0), 2)
             ajouter_historique(rapport, "Types vérifiés")

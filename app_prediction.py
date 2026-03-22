@@ -150,9 +150,19 @@ st.markdown("---")
 st.markdown("### 2. Charger les données")
 
 # ── Trame téléchargeable (si modèle chargé avec trame disponible) ──
-if model is not None and model_meta is not None:
-    trame_colonnes = model_meta.get("trame_colonnes")
-    trame_types = model_meta.get("trame_types", {})
+if model is not None:
+    trame_colonnes = None
+    trame_types = {}
+    
+    # Priorité 1: Trame depuis model_meta (si fichier .mlmodel avec trame)
+    if model_meta is not None:
+        trame_colonnes = model_meta.get("trame_colonnes")
+        trame_types = model_meta.get("trame_types", {})
+    
+    # Priorité 2: Fallback — générer depuis feature_names_in_ du modèle
+    if not trame_colonnes and hasattr(model, "feature_names_in_"):
+        trame_colonnes = list(model.feature_names_in_)
+        trame_types = {col: "Numérique" for col in trame_colonnes}
     
     if trame_colonnes:
         with st.expander("📥 Télécharger la trame de données à remplir", expanded=True):
@@ -201,6 +211,8 @@ if model is not None and model_meta is not None:
                 )
             except Exception:
                 col_xls.caption("_(Excel non disponible - utilisez le CSV)_")
+    else:
+        st.info("💡 Aucune trame disponible. Utilisez les colonnes expect du modèle.")
 
 data_file = st.file_uploader(
     "Données (CSV ou Excel)",

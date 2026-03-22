@@ -34,6 +34,51 @@ streamlit run app.py
 
 L'application s'ouvre automatiquement dans votre navigateur à l'adresse `http://localhost:8501`.
 
+---
+
+## 🌐 Partager l'application
+
+### Option 1 — Streamlit Community Cloud (gratuit, 5 min) ⭐ Recommandé
+
+La façon la plus simple de donner un lien URL public à tout le monde.
+
+1. Aller sur **[share.streamlit.io](https://share.streamlit.io)**
+2. Se connecter avec GitHub
+3. Cliquer **"New app"**
+4. Sélectionner le repo `Webapp-Processus-LM`, branche `master`, fichier `app.py`
+5. Cliquer **Deploy**
+
+→ URL partageable générée automatiquement (ex : `https://xxxx.streamlit.app`)
+
+> ⚠️ Limite : 1 GB RAM — suffisant pour un usage normal. App mise en veille après 7 jours sans visite.
+
+---
+
+### Option 2 — Docker (réseau local / serveur interne)
+
+Le `Dockerfile` est déjà configuré :
+
+```bash
+docker build -t ml-studio .
+docker run -p 8501:8080 ml-studio
+# Accessible sur http://<votre-IP>:8501
+```
+
+---
+
+### Option 3 — Google Cloud Run (URL publique permanente)
+
+```bash
+gcloud builds submit --tag gcr.io/<PROJECT_ID>/ml-studio
+gcloud run deploy ml-studio \
+  --image gcr.io/<PROJECT_ID>/ml-studio \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 8080
+```
+
+---
+
 ## Structure du projet
 
 ```

@@ -541,7 +541,15 @@ et ne fait pas que "réciter" les données apprises (sur-apprentissage).
             "test_score": best.get("test_score"),
             "train_score": best.get("train_score"),
         }
-        buffer = io.BytesIO()
+        
+        # Ajouter les données de trame post-typage si disponibles
+        rapport = st.session_state.get("rapport", {})
+        if rapport:
+            trame_colonnes = rapport.get("trame_colonnes", [])
+            trame_types = rapport.get("trame_types", {})
+            if trame_colonnes:
+                export_data["trame_colonnes"] = trame_colonnes
+                export_data["trame_types"] = trame_types
         pickle.dump(export_data, buffer)
         buffer.seek(0)
 

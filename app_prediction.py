@@ -149,6 +149,59 @@ st.markdown("---")
 # ── Étape 2 : Charger les données ──
 st.markdown("### 2. Charger les données")
 
+# ── Trame téléchargeable (si modèle chargé avec trame disponible) ──
+if model is not None and model_meta is not None:
+    trame_colonnes = model_meta.get("trame_colonnes")
+    trame_types = model_meta.get("trame_types", {})
+    
+    if trame_colonnes:
+        with st.expander("📥 Télécharger la trame de données à remplir", expanded=True):
+            st.caption(
+                "Remplissez ce fichier avec vos données puis importez-le ci-dessous. "
+                "Les colonnes et types correspondent exactement à ceux utilisés lors de l'entraînement."
+            )
+
+            # Tableau d'information : colonnes + types
+            df_info = pd.DataFrame({
+                "Colonne": trame_colonnes,
+                "Type": [trame_types.get(col, "Numérique") for col in trame_colonnes],
+                "Exemple": ["" for _ in trame_colonnes],
+            })
+            st.dataframe(df_info, use_container_width=True, hide_index=True)
+
+            # Générer la trame : 3 lignes vides
+            df_trame = pd.DataFrame({col: ["", "", ""] for col in trame_colonnes})
+
+            col_csv, col_xls = st.columns(2)
+
+            # Bouton CSV
+            csv_trame = df_trame.to_csv(index=False).encode("utf-8")
+            col_csv.download_button(
+                "📥 Télécharger la trame (.csv)",
+                csv_trame,
+                "trame_prediction.csv",
+                "text/csv",
+                key="dl_trame_csv",
+                use_container_width=True,
+            )
+
+            # Bouton Excel (2 onglets)
+            try:
+                excel_buf = io.BytesIO()
+                with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+                    df_trame.to_excel(writer, index=False, sheet_name="Données")
+                    df_info[["Colonne", "Type"]].to_excel(writer, index=False, sheet_name="Types")
+                col_xls.download_button(
+                    "📥 Télécharger la trame (.xlsx)",
+                    excel_buf.getvalue(),
+                    "trame_prediction.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_trame_xlsx",
+                    use_container_width=True,
+                )
+            except Exception:
+                col_xls.caption("_(Excel non disponible - utilisez le CSV)_")
+
 data_file = st.file_uploader(
     "Données (CSV ou Excel)",
     type=["csv", "xlsx", "xls"],

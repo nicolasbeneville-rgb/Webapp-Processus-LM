@@ -303,9 +303,13 @@ with st.sidebar:
         pending = st.session_state.pop("_pending_step", None)
         if pending is not None and pending <= max_step:
             st.session_state["nav_step_idx"] = pending
+        elif "nav_step_idx" not in st.session_state:
+            st.session_state["nav_step_idx"] = min(max_step, len(STEPS) - 1)
 
-        default_idx = st.session_state.get("nav_step_idx", min(max_step, len(STEPS) - 1))
-        default_idx = min(max(default_idx, 0), len(STEPS) - 1)
+        st.session_state["nav_step_idx"] = min(
+            max(st.session_state.get("nav_step_idx", 0), 0),
+            len(STEPS) - 1,
+        )
 
         def _format_step(i: int) -> str:
             return STEPS[i] if i <= max_step else f"🔒 {STEPS[i]}"
@@ -313,7 +317,6 @@ with st.sidebar:
         step_idx = st.radio(
             "Étape",
             step_options,
-            index=default_idx,
             key="nav_step_idx",
             format_func=_format_step,
             label_visibility="collapsed",

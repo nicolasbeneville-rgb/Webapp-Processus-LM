@@ -562,6 +562,60 @@ def afficher_typage():
             if df_typed is not None:
                 sauvegarder_csv(rapport, df_typed, "data_typed.csv")
 
+                # ── Générer la trame de données post-typage (colonnes finales + types) ──
+                try:
+                    import io
+                    # Créer la trame : en-têtes + 3 lignes vides
+                    df_trame = pd.DataFrame({col: ["", "", ""] for col in df_typed.columns})
+                    
+                    # Déduire les types depuis type_mapping
+                    type_hints = {}
+                    for col, typ in rapport.get("type_mapping", {}).items():
+                        if col in df_typed.columns:
+                            if "string" in typ.lower() or "text" in typ.lower():
+                                type_hints[col] = "Texte"
+                            elif "category" in typ.lower():
+                                type_hints[col] = "Catégorie"
+                            elif "int" in typ.lower():
+                                type_hints[col] = "Entier"
+                            elif "float" in typ.lower() or "float" in typ.lower():
+                                type_hints[col] = "Numérique"
+                            elif "datetime" in typ.lower() or "date" in typ.lower():
+                                type_hints[col] = "Date"
+                            elif "bool" in typ.lower():
+                                type_hints[col] = "Booléen"
+                            else:
+                                type_hints[col] = typ.split("(")[0].strip()  # p.ex. "Numérique (float)"
+                    
+                    # Créer le tableau d'information
+                    df_info = pd.DataFrame({
+                        "Colonne": df_typed.columns.tolist(),
+                        "Type": [type_hints.get(col, "Numérique") for col in df_typed.columns],
+                    })
+                    
+                    # Sauvegarder la trame en CSV
+                    sauvegarder_csv(rapport, df_trame, "trame_donnees.csv")
+                    
+                    # Sauvegarder la trame en Excel (2 onglets : Données + Types)
+                    chemin_projet = rapport.get("chemin", "")
+                    if chemin_projet:
+                        try:
+                            import openpyxl
+                            trame_xlsx_path = os.path.join(chemin_projet, "trame_donnees.xlsx")
+                            with pd.ExcelWriter(trame_xlsx_path, engine="openpyxl") as writer:
+                                df_trame.to_excel(writer, index=False, sheet_name="Données")
+                                df_info.to_excel(writer, index=False, sheet_name="Types")
+                            rapport["trame_xlsx_path"] = trame_xlsx_path
+                        except ImportError:
+                            pass  # openpyxl not available
+                    
+                    # Stocker les paths et colonnes dans le rapport
+                    rapport["trame_csv_path"] = os.path.join(chemin_projet, "trame_donnees.csv")
+                    rapport["trame_colonnes"] = df_typed.columns.tolist()
+                    rapport["trame_types"] = type_hints
+                except Exception:
+                    pass  # Erreur génération trame — continuer sans
+
             rapport["etape_courante"] = max(rapport.get("etape_courante", 0), 2)
             ajouter_historique(rapport, "Types vérifiés")
             sauvegarder_rapport(rapport)
